@@ -25,11 +25,19 @@ export interface PlanExtra {
   resetsAt: string | null;
 }
 
+/** A model- or product-scoped slice of the plan. `windows` are that slice's
+ * own 5-hour, weekly, or other allowance — not a share of the account total. */
+export interface PlanModelUsage {
+  name: string;
+  windows: PlanExtra[];
+}
+
 export interface PlanWindows {
   plan: string | null;
   fiveHour: PlanWindow;
   weekly: PlanWindow;
   extra: PlanExtra[];
+  models: PlanModelUsage[];
 }
 
 export interface PlanProviderRow {
@@ -42,6 +50,7 @@ export interface PlanProviderRow {
   fiveHour: PlanWindow;
   weekly: PlanWindow;
   extra: PlanExtra[];
+  models: PlanModelUsage[];
 }
 
 export interface PlanUsageReport {
@@ -141,61 +150,67 @@ export function planAccountsFromInstances(instances: InstanceConfigMap): PlanAcc
 export function parseClaudeUsage(body: unknown): PlanWindows {
   const root = claudeRoot(body);
   const extra: PlanExtra[] = [];
+  const models: PlanModelUsage[] = [];
   if (root) {
     for (const [key, value] of Object.entries(root)) {
       if (key === "five_hour" || key === "seven_day") continue;
       if (!/^[a-z][a-z0-9_]{0,40}$/i.test(key)) continue;
       const window = readClaudeWindow(value);
       if (!window) continue;
-      extra.push(extraLine(claudeExtraLabel(key), window));
+      const model = claudeModelWindow(key);
+      if (model) addModelWindow(models, model.name, extraLine(model.window, window));
+      else extra.push(extraLine(claudeExtraLabel(key), window));
     }
   }
+  sortModelWindows(models);
   return {
     plan: planLabel(root?.subscription_type ?? root?.plan ?? root?.plan_type),
     fiveHour: (root && readClaudeWindow(root.five_hour)) ?? closedWindow(),
     weekly: (root && readClaudeWindow(root.seven_day)) ?? closedWindow(),
     extra,
+    models,
   };
 }
 
 export function parseCodexUsage(body: unknown): PlanWindows {
   const root = asRecord(body);
-  const windows: DurationWindow[] = [];
-  if (root) {
-    collectDurationWindows(root.rate_limit, windows);
-    collectDurationWindows(root.additional_rate_limits, windows);
-  }
-  const assigned = assignDurationWindows(windows);
-  return { ...assigned, plan: planLabel(root?.plan_type ?? root?.plan) };
+  const assigned = assignDurationWindows(durationWindows(root?.rate_limit));
+  const models: PlanModelUsage[] = [];
+  const extra = [...assigned.extra];
+  if (root) collectCodexNamedLimits(root, models, extra);
+  sortModelWindows(models);
+  return { ...assigned, extra, models, plan: planLabel(root?.plan_type ?? root?.plan) };
 }
 
 export function parseGrokUsage(credits: unknown, billing?: unknown, settings?: unknown): PlanWindows {
   let fiveHour = closedWindow();
   let weekly = closedWindow();
   const extra: PlanExtra[] = [];
+  const models: PlanModelUsage[] = [];
   let sawMonthly = false;
   const place = (sample: GrokSample | null) => {
     if (!sample) return;
     const window = openWindow(sample.used, sample.resetsAt);
     if (sample.slot === "fiveHour") {
       if (!fiveHour.available) fiveHour = window;
-      return;
-    }
-    if (sample.slot === "weekly") {
+    } else if (sample.slot === "weekly") {
       if (!weekly.available) weekly = window;
-      return;
+    } else if (sample.slot === "monthly") {
+      if (!sawMonthly) {
+        sawMonthly = true;
+        extra.push(extraLine("Monthly", window));
+      }
+    } else {
+      extra.push(extraLine(sample.seconds == null ? "Credits" : durationLabel(sample.seconds), window));
     }
-    if (sample.slot === "monthly") {
-      if (sawMonthly) return;
-      sawMonthly = true;
-      extra.push(extraLine("Monthly", window));
-      return;
-    }
-    extra.push(extraLine(sample.seconds == null ? "Credits" : durationLabel(sample.seconds), window));
   };
-  place(readGrokSample(credits));
+  const creditSample = readGrokSample(credits);
+  place(creditSample);
+  const productSample = creditSample ?? { used: 0, slot: "other" as const, resetsAt: null, seconds: null };
+  for (const model of readGrokProducts(credits, productSample)) addModelWindow(models, model.name, model.window);
   if (billing !== undefined) place(readGrokSample(billing));
-  return { plan: grokPlan(settings), fiveHour, weekly, extra };
+  sortModelWindows(models);
+  return { plan: grokPlan(settings), fiveHour, weekly, extra, models };
 }
 
 export function fileCredentialReader(source: CredentialSource): CredentialReader {
@@ -387,9 +402,31 @@ function claudeExtraLabel(key: string): string {
   const suffix = key.startsWith("seven_day_")
     ? key.slice("seven_day_".length)
     : key.replace(/^five_hour_/, "");
+  return titleWords(suffix);
+}
+
+function titleWords(suffix: string): string {
   const words = suffix.split("_").filter((part) => part.length > 0);
   if (words.length === 0) return "Window";
   return words.map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join(" ");
+}
+
+/** Claude names a model's own window `five_hour_<model>` or `seven_day_<model>`. */
+function claudeModelWindow(key: string): { name: string; window: string } | null {
+  if (key.startsWith("seven_day_")) return { name: titleWords(key.slice("seven_day_".length)), window: "Weekly" };
+  if (key.startsWith("five_hour_")) return { name: titleWords(key.slice("five_hour_".length)), window: "5-hour" };
+  return null;
+}
+
+function addModelWindow(models: PlanModelUsage[], name: string, line: PlanExtra): void {
+  const found = models.find((model) => model.name.toLowerCase() === name.toLowerCase());
+  if (found) found.windows.push(line);
+  else models.push({ name, windows: [line] });
+}
+
+function sortModelWindows(models: PlanModelUsage[]): void {
+  const rank = (label: string) => (label === "5-hour" ? 0 : label === "Weekly" ? 1 : 2);
+  for (const model of models) model.windows.sort((a, b) => rank(a.label) - rank(b.label));
 }
 
 interface DurationWindow {
@@ -411,21 +448,77 @@ function readDurationWindow(value: unknown): DurationWindow | null {
   return { used, seconds, resetsAt: isoOrNull(record.reset_at ?? record.resetAt) };
 }
 
-function collectDurationWindows(node: unknown, into: DurationWindow[]): void {
-  if (Array.isArray(node)) {
-    for (const item of node) collectDurationWindows(item, into);
-    return;
-  }
+/** Primary and secondary windows, or one flat window when those keys are absent. */
+function durationWindows(node: unknown): DurationWindow[] {
   const record = asRecord(node);
-  if (!record) return;
-  if ("used_percent" in record || "limit_window_seconds" in record || "window_minutes" in record) {
-    const window = readDurationWindow(record);
-    if (window) into.push(window);
-    return;
+  if (!record) return [];
+  const source = asRecord(record.rate_limit) ?? record;
+  const windows: DurationWindow[] = [];
+  for (const key of ["primary_window", "secondary_window"]) {
+    const window = readDurationWindow(source[key]);
+    if (window) windows.push(window);
   }
-  for (const value of Object.values(record)) {
-    if (value && typeof value === "object") collectDurationWindows(value, into);
+  if (windows.length === 0) {
+    const self = readDurationWindow(source);
+    if (self) windows.push(self);
   }
+  return windows;
+}
+
+function codexLimitName(record: Record<string, unknown>): string | null {
+  return planLabel(record.limit_name) ?? planLabel(record.metered_feature) ?? planLabel(record.name);
+}
+
+function pushAssignedLines(assigned: PlanWindows, into: PlanExtra[]): void {
+  if (assigned.fiveHour.available) into.push(extraLine("5-hour", assigned.fiveHour));
+  if (assigned.weekly.available) into.push(extraLine("Weekly", assigned.weekly));
+  into.push(...assigned.extra);
+}
+
+function collectCodexNamedLimits(root: Record<string, unknown>, models: PlanModelUsage[], extra: PlanExtra[]): void {
+  const buckets: Array<{ name: string | null; node: unknown }> = [];
+  if (root.code_review_rate_limit) buckets.push({ name: "Code review", node: root.code_review_rate_limit });
+  const additional = root.additional_rate_limits;
+  if (Array.isArray(additional)) {
+    for (const item of additional) {
+      const record = asRecord(item);
+      buckets.push({ name: record ? codexLimitName(record) : null, node: item });
+    }
+  } else {
+    const named = asRecord(additional);
+    if (named) {
+      for (const [key, value] of Object.entries(named)) buckets.push({ name: planLabel(key), node: value });
+    }
+  }
+  for (const bucket of buckets) {
+    const assigned = assignDurationWindows(durationWindows(bucket.node));
+    if (!bucket.name) {
+      pushAssignedLines(assigned, extra);
+      continue;
+    }
+    const lines: PlanExtra[] = [];
+    pushAssignedLines(assigned, lines);
+    for (const line of lines) addModelWindow(models, bucket.name, line);
+  }
+}
+
+function readGrokProducts(body: unknown, sample: GrokSample): Array<{ name: string; window: PlanExtra }> {
+  const root = asRecord(body);
+  if (!root) return [];
+  const config = asRecord(root.config) ?? root;
+  if (!Array.isArray(config.productUsage)) return [];
+  const label = sample.slot === "fiveHour" ? "5-hour" : sample.slot === "weekly" ? "Weekly" : sample.slot === "monthly" ? "Monthly" : "Used";
+  const rows: Array<{ name: string; window: PlanExtra }> = [];
+  for (const item of config.productUsage) {
+    const record = asRecord(item);
+    if (!record) continue;
+    const raw = typeof record.product === "string" ? record.product : typeof record.name === "string" ? record.name : "";
+    const name = planLabel(raw.replace(/([a-z])([A-Z])/g, "$1 $2"));
+    const used = finiteNumber(record.usagePercent ?? record.usedPercent ?? record.utilization);
+    if (!name || used == null) continue;
+    rows.push({ name, window: extraLine(label, openWindow(used, sample.resetsAt)) });
+  }
+  return rows;
 }
 
 function durationLabel(seconds: number): string {
@@ -446,7 +539,7 @@ function assignDurationWindows(windows: DurationWindow[]): PlanWindows {
     else if (weeklySlot && !weekly.available) weekly = open;
     else extra.push(extraLine(durationLabel(window.seconds), open));
   }
-  return { plan: null, fiveHour, weekly, extra };
+  return { plan: null, fiveHour, weekly, extra, models: [] };
 }
 
 type GrokSlot = "fiveHour" | "weekly" | "monthly" | "other";
@@ -590,6 +683,7 @@ function errorRow(account: PlanAccount, error: string): PlanProviderRow {
     fiveHour: closedWindow(),
     weekly: closedWindow(),
     extra: [],
+    models: [],
   };
 }
 
@@ -604,6 +698,7 @@ function okRow(account: PlanAccount, windows: PlanWindows): PlanProviderRow {
     fiveHour: windows.fiveHour,
     weekly: windows.weekly,
     extra: windows.extra,
+    models: windows.models,
   };
 }
 

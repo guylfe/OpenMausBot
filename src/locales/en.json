@@ -1329,6 +1329,8 @@
   "planUsage.fiveHour": "5-hour",
   "planUsage.weekly": "Weekly",
   "planUsage.left": "{remaining}% left",
+  "planUsage.used": "{used}% used",
+  "planUsage.byModel": "By model",
   "planUsage.resetsIn": "resets in {when}",
   "planUsage.notReported": "Not reported by this plan",
   "planUsage.empty": "No Claude, Codex, or Grok account is configured.",

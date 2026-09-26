@@ -21,6 +21,11 @@ interface PlanExtra {
   resetsAt: string | null;
 }
 
+interface PlanModelUsage {
+  name: string;
+  windows: PlanExtra[];
+}
+
 interface PlanProvider {
   id: string;
   name: string;
@@ -31,6 +36,7 @@ interface PlanProvider {
   fiveHour: PlanWindow;
   weekly: PlanWindow;
   extra: PlanExtra[];
+  models?: PlanModelUsage[];
 }
 
 interface PlanUsageReport {
@@ -58,24 +64,35 @@ function usageTone(used: number): string {
   return "bg-success";
 }
 
+function windowLabel(label: string): string {
+  if (label === "5-hour") return t("planUsage.fiveHour");
+  if (label === "Weekly") return t("planUsage.weekly");
+  return label;
+}
+
 function WindowRow({
   label,
   window,
   now,
+  usedHeadline = false,
 }: {
   label: string;
   window: PlanWindow;
   now: number;
+  usedHeadline?: boolean;
 }) {
   const when = window.available ? formatResetDistance(window.resetsAt, now) : null;
   const used = window.usedPercent ?? 0;
+  const headline = usedHeadline
+    ? window.usedPercent == null ? null : t("planUsage.used", { used: Math.round(window.usedPercent) })
+    : window.remainingPercent == null ? null : t("planUsage.left", { remaining: Math.round(window.remainingPercent) });
   return (
     <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
       <div className="text-[12px] text-ink-secondary">{label}</div>
-      {window.available && window.remainingPercent != null ? (
+      {window.available && headline ? (
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink">
-            <span className="tabular-nums">{t("planUsage.left", { remaining: Math.round(window.remainingPercent) })}</span>
+            <span className="tabular-nums">{headline}</span>
             {when && <span className="text-[12px] text-ink-secondary">{t("planUsage.resetsIn", { when })}</span>}
           </div>
           <div
@@ -154,7 +171,7 @@ export function PlanUsage() {
                   {provider.extra.map((extra, index) => (
                     <WindowRow
                       key={`${extra.label}-${index}`}
-                      label={extra.label}
+                      label={windowLabel(extra.label)}
                       now={now}
                       window={{
                         available: true,
@@ -164,6 +181,30 @@ export function PlanUsage() {
                       }}
                     />
                   ))}
+                  {(provider.models ?? []).length > 0 && (
+                    <div className="mt-1 flex flex-col gap-2">
+                      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">{t("planUsage.byModel")}</div>
+                      {(provider.models ?? []).map((model) => (
+                        <div key={model.name} className="flex flex-col gap-1">
+                          <div className="truncate text-[13px] font-medium text-ink">{model.name}</div>
+                          {model.windows.map((entry, index) => (
+                            <WindowRow
+                              key={`${model.name}-${entry.label}-${index}`}
+                              label={windowLabel(entry.label)}
+                              now={now}
+                              usedHeadline
+                              window={{
+                                available: true,
+                                remainingPercent: entry.remainingPercent,
+                                usedPercent: entry.usedPercent,
+                                resetsAt: entry.resetsAt,
+                              }}
+                            />
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-[13px] text-danger">{provider.error}</p>

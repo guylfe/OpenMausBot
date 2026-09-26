@@ -41,18 +41,33 @@ function account(driver: PlanAccount["driver"], extras: Partial<PlanAccount> = {
 }
 
 describe("plan usage parsers", () => {
-  it("turns Claude utilization into remaining percent and keeps opus as an extra line", () => {
+  it("turns Claude utilization into remaining percent and keeps opus as a model window", () => {
     const parsed = parseClaudeUsage({
       five_hour: { utilization: 25, resets_at: "2026-09-26T12:00:00.000Z" },
       seven_day: { utilization: 40, resets_at: "2026-10-03T00:00:00.000Z" },
+      five_hour_opus: { utilization: 10, resets_at: "2026-09-26T12:00:00.000Z" },
       seven_day_opus: { utilization: 15, resets_at: "2026-10-03T00:00:00.000Z" },
+      seven_day_sonnet: { utilization: 8, resets_at: "2026-10-03T00:00:00.000Z" },
       access_token: SECRET,
       claudeAiOauth: { accessToken: SECRET },
     });
     expect(parsed.fiveHour).toMatchObject({ available: true, usedPercent: 25, remainingPercent: 75, resetsAt: "2026-09-26T12:00:00.000Z" });
     expect(parsed.weekly).toMatchObject({ available: true, usedPercent: 40, remainingPercent: 60 });
-    expect(parsed.extra).toEqual([
-      expect.objectContaining({ label: "Opus", usedPercent: 15, remainingPercent: 85, resetsAt: "2026-10-03T00:00:00.000Z" }),
+    expect(parsed.extra).toEqual([]);
+    expect(parsed.models).toEqual([
+      {
+        name: "Opus",
+        windows: [
+          expect.objectContaining({ label: "5-hour", usedPercent: 10, remainingPercent: 90 }),
+          expect.objectContaining({ label: "Weekly", usedPercent: 15, remainingPercent: 85, resetsAt: "2026-10-03T00:00:00.000Z" }),
+        ],
+      },
+      {
+        name: "Sonnet",
+        windows: [
+          expect.objectContaining({ label: "Weekly", usedPercent: 8, remainingPercent: 92 }),
+        ],
+      },
     ]);
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
@@ -85,7 +100,38 @@ describe("plan usage parsers", () => {
         resetsAt: new Date(1_800_000_000_000).toISOString(),
       }),
     ]);
+    expect(parsed.models).toEqual([]);
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
+  });
+
+  it("keeps Codex model windows separate from the account plan", () => {
+    const parsed = parseCodexUsage({
+      plan_type: "pro",
+      rate_limit: {
+        primary_window: { used_percent: 10, limit_window_seconds: 18000, reset_at: 1_800_000_000 },
+        secondary_window: { used_percent: 40, limit_window_seconds: 604800, reset_at: 1_800_000_000 },
+      },
+      additional_rate_limits: [
+        {
+          limit_name: "GPT-5.3-Codex-Spark",
+          rate_limit: {
+            primary_window: { used_percent: 5, limit_window_seconds: 18000, reset_at: 1_800_000_000 },
+            secondary_window: { used_percent: 12, limit_window_seconds: 604800, reset_at: 1_800_000_000 },
+          },
+        },
+      ],
+    });
+    expect(parsed.fiveHour.usedPercent).toBe(10);
+    expect(parsed.weekly.usedPercent).toBe(40);
+    expect(parsed.models).toEqual([
+      {
+        name: "GPT-5.3-Codex-Spark",
+        windows: [
+          expect.objectContaining({ label: "5-hour", usedPercent: 5, remainingPercent: 95 }),
+          expect.objectContaining({ label: "Weekly", usedPercent: 12, remainingPercent: 88 }),
+        ],
+      },
+    ]);
   });
 
   it("reports Grok weekly credits without inventing a 5-hour window", () => {
@@ -95,6 +141,10 @@ describe("plan usage parsers", () => {
         config: {
           creditUsagePercent: 8,
           currentPeriod: { type: "WEEK", start: "2026-09-26T00:00:00.000Z", end: "2026-10-03T00:00:00.000Z" },
+          productUsage: [
+            { product: "GrokBuild", usagePercent: 8 },
+            { product: "GrokChat", usagePercent: 2 },
+          ],
         },
       },
       {
@@ -116,6 +166,10 @@ describe("plan usage parsers", () => {
     });
     expect(parsed.extra).toEqual([
       expect.objectContaining({ label: "Monthly", usedPercent: 40, remainingPercent: 60 }),
+    ]);
+    expect(parsed.models).toEqual([
+      { name: "Grok Build", windows: [expect.objectContaining({ label: "Weekly", usedPercent: 8, remainingPercent: 92 })] },
+      { name: "Grok Chat", windows: [expect.objectContaining({ label: "Weekly", usedPercent: 2, remainingPercent: 98 })] },
     ]);
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
