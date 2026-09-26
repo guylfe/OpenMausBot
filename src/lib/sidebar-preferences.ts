@@ -8,6 +8,7 @@ export const SIDEBAR_ATTENTION_PINNED_KEY = "openmausbot.sidebarAttentionPinned.
 export const SIDEBAR_COLLAPSED_SECTIONS_KEY = "openmausbot.sidebarCollapsedSections.v1";
 export const SIDEBAR_SECTION_ORDER_KEY = "openmausbot.sidebarSectionOrder.v1";
 export const PINNED_CIRCLES_KEY = "openmausbot.pinnedCircles";
+export const UNIVERSAL_PINS_KEY = "openmausbot.universalPins";
 export const SIDEBAR_WIDTH_KEY = "openmausbot.sidebarWidth";
 
 /** Pixel width of the collapsed avatar rail. Not user-resizable. */
@@ -150,6 +151,76 @@ export function setPinnedCircles(enabled: boolean): void {
 
 export function usePinnedCircles(): boolean {
   return useSyncExternalStore(subscribePinnedCircles, loadPinnedCircles, () => false);
+}
+
+export function parseUniversalPins(value: string | null): boolean {
+  return value === "true";
+}
+
+let sessionUniversalPins: boolean | undefined;
+const universalPinListeners = new Set<() => void>();
+
+function notifyUniversalPins(): void {
+  for (const listener of universalPinListeners) listener();
+}
+
+function onUniversalPinsStorage(event: StorageEvent): void {
+  if (event.key !== UNIVERSAL_PINS_KEY && event.key !== null) return;
+  sessionUniversalPins = undefined;
+  notifyUniversalPins();
+}
+
+export function subscribeUniversalPins(listener: () => void): () => void {
+  universalPinListeners.add(listener);
+  if (
+    universalPinListeners.size === 1 &&
+    typeof window !== "undefined" &&
+    typeof window.addEventListener === "function"
+  ) {
+    window.addEventListener("storage", onUniversalPinsStorage);
+  }
+  return () => {
+    universalPinListeners.delete(listener);
+    if (
+      universalPinListeners.size === 0 &&
+      typeof window !== "undefined" &&
+      typeof window.removeEventListener === "function"
+    ) {
+      window.removeEventListener("storage", onUniversalPinsStorage);
+    }
+  };
+}
+
+export function loadUniversalPins(storage?: Pick<Storage, "getItem"> | null): boolean {
+  if (storage === undefined && sessionUniversalPins !== undefined) return sessionUniversalPins;
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    return parseUniversalPins(target?.getItem(UNIVERSAL_PINS_KEY) ?? null);
+  } catch {
+    return false;
+  }
+}
+
+export function saveUniversalPins(
+  enabled: boolean,
+  storage?: Pick<Storage, "setItem"> | null,
+): void {
+  try {
+    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
+    target?.setItem(UNIVERSAL_PINS_KEY, enabled ? "true" : "false");
+  } catch {
+    // Private browsing and locked-down webviews may reject localStorage.
+  }
+}
+
+export function setUniversalPins(enabled: boolean): void {
+  sessionUniversalPins = enabled;
+  saveUniversalPins(enabled);
+  notifyUniversalPins();
+}
+
+export function useUniversalPins(): boolean {
+  return useSyncExternalStore(subscribeUniversalPins, loadUniversalPins, () => false);
 }
 
 /** Integer pixels, or null when nothing usable is stored. Out of range

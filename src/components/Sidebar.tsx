@@ -76,6 +76,7 @@ import {
   saveSidebarWidth,
   toggleCollapsedSection,
   usePinnedCircles,
+  useUniversalPins,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import {
@@ -1129,6 +1130,50 @@ function PinnedBotCircle({
   );
 }
 
+function PinnedBotRoster({
+  bots,
+  density,
+  circles,
+  quiet,
+  query,
+  onMenu,
+}: {
+  bots: Bot[];
+  density: SidebarDensity;
+  circles: boolean;
+  quiet: boolean;
+  query: string;
+  onMenu: (menu: MenuState) => void;
+}) {
+  if (circles && density !== "icons") {
+    return (
+      <div
+        data-sidebar-pinned-circles=""
+        className="grid gap-1 px-1 pb-1"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}
+      >
+        {bots.map((bot) => (
+          <PinnedBotCircle key={bot.id} bot={bot} onMenu={onMenu} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <>
+      {bots.map((bot) => (
+        <BotListItem
+          key={bot.id}
+          bot={bot}
+          density={density}
+          quiet={quiet}
+          query={query}
+          onMenu={onMenu}
+        />
+      ))}
+    </>
+  );
+}
+
 export function BotListItem({
   bot,
   density,
@@ -1677,6 +1722,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const [query, setQuery] = useState("");
   const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const pinnedCircles = usePinnedCircles();
+  const universalPins = useUniversalPins();
   const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
@@ -1879,7 +1925,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     sectionChiefs,
     sectionedBots,
     unsectionedBots,
-  } = partitionSidebarBots(matchingBots);
+  } = partitionSidebarBots(matchingBots, { universalPins });
   const { botChats, sectionedRooms, unsectionedRooms } = partitionSidebarGroups(visibleGroups);
 
   // User sections keep first-appearance order. The saved layout keeps an
@@ -1895,7 +1941,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (!sectionNames.includes(group.section!)) sectionNames.push(group.section!);
   }
   const naturalSectionIds = [
-    ...(pinnedBots.length > 0 ? [PINNED_SECTION_ID] : []),
+    ...(pinnedBots.length > 0 && !universalPins ? [PINNED_SECTION_ID] : []),
     ...(unsectionedRooms.length > 0 ? [CHANNELS_SECTION_ID] : []),
     ...(botChats.length > 0 ? [BOT_CHATS_SECTION_ID] : []),
     ...(unsectionedBots.length > 0 ? [BOTS_SECTION_ID] : []),
@@ -2229,6 +2275,27 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
       </div>
 
+      {universalPins && pinnedBots.length > 0 && (
+        <div
+          data-sidebar-universal-pins=""
+          className="max-h-[min(42%,280px)] shrink-0 overflow-y-auto border-b border-hairline/40 px-2 pb-2"
+        >
+          {density !== "icons" && !pinnedCircles && (
+            <div className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+              {t("sidebar.section.pinned")}
+            </div>
+          )}
+          <PinnedBotRoster
+            bots={pinnedBots}
+            density={density}
+            circles={pinnedCircles}
+            quiet={quietRows}
+            query={q}
+            onMenu={setMenu}
+          />
+        </div>
+      )}
+
       {attentionPinned && density !== "icons" && (
         <SidebarAttentionPanel
           entries={attention}
@@ -2349,16 +2416,15 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                         onMenu={setRoomMenu}
                       />
                     ))}
-                    {id === PINNED_SECTION_ID && pinnedCircles && density !== "icons" ? (
-                      <div
-                        data-sidebar-pinned-circles=""
-                        className="grid gap-1 px-1 pb-1"
-                        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}
-                      >
-                        {sectionBotItems.map((bot) => (
-                          <PinnedBotCircle key={bot.id} bot={bot} onMenu={setMenu} />
-                        ))}
-                      </div>
+                    {id === PINNED_SECTION_ID ? (
+                      <PinnedBotRoster
+                        bots={sectionBotItems}
+                        density={density}
+                        circles={pinnedCircles}
+                        quiet={quietRows}
+                        query={q}
+                        onMenu={setMenu}
+                      />
                     ) : sectionBotItems.map((bot) => (
                       <BotListItem
                         key={bot.id}

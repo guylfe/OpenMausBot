@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   PINNED_CIRCLES_KEY,
   SIDEBAR_ATTENTION_PINNED_KEY,
+  UNIVERSAL_PINS_KEY,
   SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_COMFORTABLE_WIDTH,
   SIDEBAR_DENSITY_KEY,
@@ -12,17 +13,20 @@ import {
   SIDEBAR_WIDTH_MIN,
   clampSidebarWidth,
   loadPinnedCircles,
+  loadUniversalPins,
   loadSidebarAttentionPinned,
   loadCollapsedSections,
   loadSectionOrder,
   loadSidebarDensity,
   loadSidebarWidth,
   parsePinnedCircles,
+  parseUniversalPins,
   parseSidebarAttentionPinned,
   parseSidebarDensity,
   parseSidebarWidth,
   saveCollapsedSections,
   savePinnedCircles,
+  saveUniversalPins,
   saveSectionOrder,
   saveSidebarAttentionPinned,
   saveSidebarDensity,
@@ -132,6 +136,28 @@ describe("pinned circles preference", () => {
     expect(loadPinnedCircles(null)).toBe(false);
     expect(() => savePinnedCircles(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
     expect(() => savePinnedCircles(true, null)).not.toThrow();
+  });
+});
+
+describe("universal pins preference", () => {
+  it("defaults off, stores the exact flag, and survives blocked storage", () => {
+    expect(parseUniversalPins("true")).toBe(true);
+    expect(parseUniversalPins("false")).toBe(false);
+    expect(parseUniversalPins("yes")).toBe(false);
+    expect(parseUniversalPins(null)).toBe(false);
+
+    const setItem = vi.fn();
+    saveUniversalPins(true, { setItem });
+    saveUniversalPins(false, { setItem });
+    expect(setItem).toHaveBeenNthCalledWith(1, UNIVERSAL_PINS_KEY, "true");
+    expect(setItem).toHaveBeenNthCalledWith(2, UNIVERSAL_PINS_KEY, "false");
+    expect(loadUniversalPins({ getItem: () => "true" })).toBe(true);
+    expect(loadUniversalPins({ getItem: () => "false" })).toBe(false);
+    expect(loadUniversalPins({ getItem: () => "untrusted" })).toBe(false);
+    expect(loadUniversalPins({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
+    expect(loadUniversalPins(null)).toBe(false);
+    expect(() => saveUniversalPins(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(() => saveUniversalPins(true, null)).not.toThrow();
   });
 });
 

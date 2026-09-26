@@ -68,6 +68,8 @@ describe("Settings → Appearance", () => {
     expect(html).toContain("Midnight");
     expect(html).toContain('aria-label="Show threads"');
     expect(html).toContain('aria-label="Pinned bots as circles"');
+    expect(html).toContain('aria-label="Universal pins"');
+    expect(html).toContain("from every group");
     expect(html).toContain("like Grok Bot");
     expect(html).toContain('aria-label="Show tool calls in chat"');
     expect(html).toContain("on this device only");
@@ -144,6 +146,8 @@ describe("Settings → Appearance", () => {
     expect(html).toContain("Appearance");
     expect(html).toContain('aria-label="Show threads"');
     expect(html).toContain('aria-label="Pinned bots as circles"');
+    expect(html).toContain('aria-label="Universal pins"');
+    expect(html).toContain("from every group");
     expect(html).toContain("like Grok Bot");
     expect(html).toContain("all conversation history and running work");
     expect(html).not.toContain("settings.threadDisplay");
