@@ -1,20 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  PINNED_CIRCLES_KEY,
   SIDEBAR_ATTENTION_PINNED_KEY,
+  UNIVERSAL_PINS_KEY,
   SIDEBAR_COLLAPSED_SECTIONS_KEY,
+  SIDEBAR_COMFORTABLE_WIDTH,
   SIDEBAR_DENSITY_KEY,
   SIDEBAR_SECTION_ORDER_KEY,
+  SIDEBAR_WIDTH_KEY,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  clampSidebarWidth,
+  loadPinnedCircles,
+  loadUniversalPins,
   loadSidebarAttentionPinned,
   loadCollapsedSections,
   loadSectionOrder,
   loadSidebarDensity,
+  loadSidebarWidth,
+  parsePinnedCircles,
+  parseUniversalPins,
   parseSidebarAttentionPinned,
   parseSidebarDensity,
+  parseSidebarWidth,
   saveCollapsedSections,
+  savePinnedCircles,
+  saveUniversalPins,
   saveSectionOrder,
   saveSidebarAttentionPinned,
   saveSidebarDensity,
+  saveSidebarWidth,
   toggleCollapsedSection,
 } from "./sidebar-preferences";
 import { userSectionId } from "./sidebar-layout";
@@ -97,6 +113,85 @@ describe("sidebar section preferences", () => {
 
     saveSectionOrder(ids, storage);
     expect(loadSectionOrder(storage)).toEqual(ids);
+  });
+});
+
+describe("pinned circles preference", () => {
+  it("defaults off, stores the exact flag, and survives blocked storage", () => {
+    expect(parsePinnedCircles("true")).toBe(true);
+    expect(parsePinnedCircles("false")).toBe(false);
+    expect(parsePinnedCircles("yes")).toBe(false);
+    expect(parsePinnedCircles("1")).toBe(false);
+    expect(parsePinnedCircles(null)).toBe(false);
+
+    const setItem = vi.fn();
+    savePinnedCircles(true, { setItem });
+    savePinnedCircles(false, { setItem });
+    expect(setItem).toHaveBeenNthCalledWith(1, PINNED_CIRCLES_KEY, "true");
+    expect(setItem).toHaveBeenNthCalledWith(2, PINNED_CIRCLES_KEY, "false");
+    expect(loadPinnedCircles({ getItem: () => "true" })).toBe(true);
+    expect(loadPinnedCircles({ getItem: () => "false" })).toBe(false);
+    expect(loadPinnedCircles({ getItem: () => "untrusted" })).toBe(false);
+    expect(loadPinnedCircles({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
+    expect(loadPinnedCircles(null)).toBe(false);
+    expect(() => savePinnedCircles(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(() => savePinnedCircles(true, null)).not.toThrow();
+  });
+});
+
+describe("universal pins preference", () => {
+  it("defaults off, stores the exact flag, and survives blocked storage", () => {
+    expect(parseUniversalPins("true")).toBe(true);
+    expect(parseUniversalPins("false")).toBe(false);
+    expect(parseUniversalPins("yes")).toBe(false);
+    expect(parseUniversalPins(null)).toBe(false);
+
+    const setItem = vi.fn();
+    saveUniversalPins(true, { setItem });
+    saveUniversalPins(false, { setItem });
+    expect(setItem).toHaveBeenNthCalledWith(1, UNIVERSAL_PINS_KEY, "true");
+    expect(setItem).toHaveBeenNthCalledWith(2, UNIVERSAL_PINS_KEY, "false");
+    expect(loadUniversalPins({ getItem: () => "true" })).toBe(true);
+    expect(loadUniversalPins({ getItem: () => "false" })).toBe(false);
+    expect(loadUniversalPins({ getItem: () => "untrusted" })).toBe(false);
+    expect(loadUniversalPins({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
+    expect(loadUniversalPins(null)).toBe(false);
+    expect(() => saveUniversalPins(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(() => saveUniversalPins(true, null)).not.toThrow();
+  });
+});
+
+describe("sidebar width preference", () => {
+  it("clamps integer pixels and ignores invalid or blocked storage", () => {
+    expect(parseSidebarWidth(null)).toBeNull();
+    expect(parseSidebarWidth("")).toBeNull();
+    expect(parseSidebarWidth("  ")).toBeNull();
+    expect(parseSidebarWidth("wide")).toBeNull();
+    expect(parseSidebarWidth("320.5")).toBeNull();
+    expect(parseSidebarWidth("320px")).toBeNull();
+    expect(parseSidebarWidth("400")).toBe(400);
+    expect(parseSidebarWidth(" 400 ")).toBe(400);
+    expect(parseSidebarWidth("100")).toBe(SIDEBAR_WIDTH_MIN);
+    expect(parseSidebarWidth("900")).toBe(SIDEBAR_WIDTH_MAX);
+    expect(parseSidebarWidth("-20")).toBe(SIDEBAR_WIDTH_MIN);
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_COMFORTABLE_WIDTH);
+    expect(clampSidebarWidth(Number.POSITIVE_INFINITY)).toBe(SIDEBAR_COMFORTABLE_WIDTH);
+    expect(clampSidebarWidth(300.4)).toBe(300);
+    expect(clampSidebarWidth(300.6)).toBe(301);
+
+    const setItem = vi.fn();
+    saveSidebarWidth(100, { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_WIDTH_KEY, "240");
+    saveSidebarWidth(480.2, { setItem });
+    expect(setItem).toHaveBeenCalledWith(SIDEBAR_WIDTH_KEY, "480");
+    expect(loadSidebarWidth({ getItem: () => "500" })).toBe(500);
+    expect(loadSidebarWidth({ getItem: () => "12" })).toBe(SIDEBAR_WIDTH_MIN);
+    expect(loadSidebarWidth({ getItem: () => "nope" })).toBeNull();
+    expect(loadSidebarWidth({ getItem: () => null })).toBeNull();
+    expect(loadSidebarWidth({ getItem: () => { throw new Error("blocked"); } })).toBeNull();
+    expect(loadSidebarWidth(null)).toBeNull();
+    expect(() => saveSidebarWidth(400, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(() => saveSidebarWidth(400, null)).not.toThrow();
   });
 });
 

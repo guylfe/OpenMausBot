@@ -42,6 +42,7 @@ import { WorkspaceBackupSettings } from "./WorkspaceBackupSettings";
 import { CompanyBackupSettings } from "./CompanyBackupSettings";
 import { cn } from "@/lib/cn";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
+import { setPinnedCircles, setUniversalPins, usePinnedCircles, useUniversalPins } from "@/lib/sidebar-preferences";
 import { setShowThreads, useShowThreads } from "@/lib/thread-preferences";
 
 // `labelKey`, not a label: t() reads the active pack when it is called, so a
@@ -57,7 +58,7 @@ const SECTIONS: Array<{
   { id: "general", labelKey: "settings.section.general", icon: User, keywords: ["profile", "name", "email", "analytics", "updates", "effort", "new bots", "reasoning", "threads", "parallel", "concurrency", "cleanup", "retention", "event log", "event-log", "log size"] },
   { id: "desktopWorkspaces", labelKey: "settings.section.desktopWorkspaces", icon: Building2, keywords: ["workspace", "cloud", "hosted", "vps", "server", "servers", "connect", "pair", "switch", "local"] },
   { id: "organization", labelKey: "settings.section.organization", icon: Building2, keywords: ["company", "organization", "organisation", "sign in", "enroll", "managed", "models", "disconnect"] },
-  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display", "notifications", "sound", "sounds", "mute", "silent", "chime"] },
+  { id: "appearance", labelKey: "settings.section.appearance", icon: Palette, keywords: ["skin", "theme", "appearance", "tools", "tool calls", "threads", "show threads", "hide threads", "sidebar", "display", "notifications", "sound", "sounds", "mute", "silent", "chime", "pinned", "circles", "avatars", "universal", "groups", "top"] },
   { id: "experimental", labelKey: "settings.section.experimental", icon: FlaskConical, keywords: ["early", "preview", "learn", "skill", "authoring", "browser", "profiles"] },
   { id: "connections", labelKey: "settings.section.connections", icon: KeyRound, keywords: ["keys", "api", "composio", "box", "xai", "mistral", "vps"] },
   { id: "engines", labelKey: "settings.section.engines", icon: Terminal, keywords: ["models", "claude", "grok", "providers", "cli"] },
@@ -372,6 +373,32 @@ function ShowThreadsRow() {
         checked={enabled}
         aria-label={t("settings.threadDisplay.show")}
         onClick={() => setShowThreads(!enabled)}
+      />
+    </SettingRow>
+  );
+}
+
+function PinnedCirclesRow() {
+  const enabled = usePinnedCircles();
+  return (
+    <SettingRow title={t("settings.pinnedCircles.title")} subtitle={t("settings.pinnedCircles.subtitle")}>
+      <Switch
+        checked={enabled}
+        aria-label={t("settings.pinnedCircles.title")}
+        onClick={() => setPinnedCircles(!enabled)}
+      />
+    </SettingRow>
+  );
+}
+
+function UniversalPinsRow() {
+  const enabled = useUniversalPins();
+  return (
+    <SettingRow title={t("settings.universalPins.title")} subtitle={t("settings.universalPins.subtitle")}>
+      <Switch
+        checked={enabled}
+        aria-label={t("settings.universalPins.title")}
+        onClick={() => setUniversalPins(!enabled)}
       />
     </SettingRow>
   );
@@ -741,6 +768,8 @@ export function SettingsModal() {
                 </Card>
                 <div>
                   <ShowThreadsRow />
+                  <PinnedCirclesRow />
+                  <UniversalPinsRow />
                   <NotificationSoundsRow />
                   {!remoteActive && <ToolCallsRow />}
                 </div>
