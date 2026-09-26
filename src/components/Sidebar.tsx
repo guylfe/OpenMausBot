@@ -58,15 +58,24 @@ import { draggedFolder, FOLDER_DRAG_TYPE, moveFolder, placeFolder } from "@/lib/
 import { folderUnreadThreadIds, markFolderRead } from "@/lib/folder-read";
 import { orderedThreadList, SidebarThreadRow, useRelativeNow, useSnoozeExpiry, visibleSidebarThreads } from "./SidebarThreadRow";
 import {
+  SIDEBAR_COMPACT_WIDTH,
+  SIDEBAR_COMFORTABLE_WIDTH,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STEP,
+  clampSidebarWidth,
   loadCollapsedSections,
   loadSectionOrder,
   loadSidebarAttentionPinned,
   loadSidebarDensity,
+  loadSidebarWidth,
   saveCollapsedSections,
   saveSectionOrder,
   saveSidebarAttentionPinned,
   saveSidebarDensity,
+  saveSidebarWidth,
   toggleCollapsedSection,
+  usePinnedCircles,
   type SidebarDensity,
 } from "@/lib/sidebar-preferences";
 import {
@@ -136,6 +145,12 @@ interface MenuState {
   botId: string;
   x: number;
   y: number;
+}
+
+/** The same point the bot row's context menu and "more" button already use. */
+function openBotContextMenu(onMenu: (menu: MenuState) => void, botId: string, event: React.MouseEvent) {
+  event.preventDefault();
+  onMenu({ botId, x: event.clientX, y: event.clientY });
 }
 
 function groupPreview(group: Group, bots: Bot[]): string {
@@ -1050,6 +1065,70 @@ export function BotThreadList({ bot, selected, density = "comfortable", query = 
   );
 }
 
+function PinnedBotCircle({
+  bot,
+  onMenu,
+}: {
+  bot: Bot;
+  onMenu: (menu: MenuState) => void;
+}) {
+  const { state, dispatch } = useStore();
+  const selected = state.activeView === "chat" && state.selectedId === bot.id;
+  const visible = visibleMessages(bot);
+  const activityTasks = sidebarBotActivityTasks(bot, state.pendingQueued);
+  const waiting = bot.activity === "waiting-on-you" || activityTasks.some((task) => task.activity === "waiting-on-you");
+  const working = !waiting && (Boolean(bot.busy) || activityTasks.some((task) => task.busy || task.activity === "working"));
+  const unread = bot.unread || activityTasks.some((task) => task.unread);
+  const mascotMotion = selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
+  return (
+    <button
+      type="button"
+      data-sidebar-bot-row={bot.id}
+      aria-current={selected ? "page" : undefined}
+      aria-label={`${bot.name}${waiting ? ` · ${t("sidebar.preview.waiting")}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
+      title={bot.name}
+      onClick={() => dispatch({ type: "select", id: bot.id })}
+      onContextMenu={(event) => openBotContextMenu(onMenu, bot.id, event)}
+      className="flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+    >
+      <span className="relative">
+        <span className={cn(
+          "flex size-16 items-center justify-center overflow-hidden rounded-full",
+          selected && "ring-2 ring-accent ring-offset-2 ring-offset-panel",
+        )}>
+          <BotAvatar
+            bot={bot}
+            state={stateForBot({ ...bot, messages: visible })}
+            size={64}
+            motion={mascotMotion?.kind ?? "none"}
+            motionKey={mascotMotion?.nonce ?? 0}
+            animated={working || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
+          />
+        </span>
+        {unread && (
+          <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-panel bg-accent" aria-label={t("task.unreadMany")} />
+        )}
+        {working && (
+          <span
+            data-testid="working-dot"
+            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-success"
+          />
+        )}
+        {waiting && (
+          <span
+            data-testid="waiting-dot"
+            role="status"
+            aria-label={t("sidebar.preview.waiting")}
+            title={t("sidebar.preview.waiting")}
+            className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-warning"
+          />
+        )}
+      </span>
+      <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
+    </button>
+  );
+}
+
 export function BotListItem({
   bot,
   density,
@@ -1231,8 +1310,7 @@ export function BotListItem({
     </>
   );
   const onContextMenu = (event: React.MouseEvent) => {
-    event.preventDefault();
-    onMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
+    openBotContextMenu(onMenu, bot.id, event);
   };
   const onSelect = (event: React.MouseEvent) => {
     if (renaming) return;
@@ -1598,6 +1676,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   } | null>(null);
   const [query, setQuery] = useState("");
   const [density, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
+  const pinnedCircles = usePinnedCircles();
+  const [sidebarWidth, setSidebarWidth] = useState<number | null>(() => loadSidebarWidth());
+  const [resizingSidebar, setResizingSidebar] = useState(false);
   const [lastExpandedDensity, setLastExpandedDensity] = useState<Exclude<SidebarDensity, "icons">>(() => {
     const saved = loadSidebarDensity();
     return saved === "icons" ? "comfortable" : saved;
@@ -1615,6 +1696,46 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     from: string | null;
     over: { id: string; place: SectionDropPlace } | null;
   }>({ from: null, over: null });
+
+  const expandedWidth = sidebarWidth ?? (density === "compact" ? SIDEBAR_COMPACT_WIDTH : SIDEBAR_COMFORTABLE_WIDTH);
+  const expandedWidthRef = useRef(expandedWidth);
+  expandedWidthRef.current = expandedWidth;
+
+  const applySidebarWidth = (px: number) => {
+    const next = clampSidebarWidth(px);
+    setSidebarWidth(next);
+    saveSidebarWidth(next);
+  };
+
+  const onResizePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || density === "icons") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const originX = event.clientX;
+    const originWidth = expandedWidthRef.current;
+    setResizingSidebar(true);
+    const move = (ev: PointerEvent) => {
+      setSidebarWidth(clampSidebarWidth(originWidth + ev.clientX - originX));
+    };
+    const finish = (ev: PointerEvent) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      applySidebarWidth(originWidth + ev.clientX - originX);
+      setResizingSidebar(false);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  };
+
+  const onResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    applySidebarWidth(expandedWidthRef.current + (event.key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : -SIDEBAR_WIDTH_STEP));
+  };
 
   const setDensity = (next: SidebarDensity) => {
     setDensityState(next);
@@ -1868,8 +1989,9 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
       data-native-view-overlay
       data-sidebar
       className={cn(
-        "flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
-        density === "icons" ? "w-[80px]" : density === "compact" ? "w-[272px]" : "w-[320px]",
+        "relative flex h-full shrink-0 flex-col border-r border-hairline/40 bg-panel transition-[width] duration-200",
+        density === "icons" && "w-[80px]",
+        resizingSidebar && "transition-none",
         // Below md only: the sidebar leaves the flow and slides in over the chat.
         // Scoped with max-md: rather than cancelled with md: on purpose — Tailwind
         // v4 emits the native `translate` property, and any value other than
@@ -1881,7 +2003,28 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         "max-md:transition-transform max-md:duration-200",
         open ? "max-md:translate-x-0" : "max-md:-translate-x-full",
       )}
+      style={density === "icons" ? undefined : {
+        width: expandedWidth,
+        minWidth: expandedWidth,
+        maxWidth: expandedWidth,
+        ...(resizingSidebar ? { transition: "none" } : {}),
+      }}
     >
+      {density !== "icons" && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("sidebar.resize")}
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
+          aria-valuenow={expandedWidth}
+          tabIndex={0}
+          onPointerDown={onResizePointerDown}
+          onKeyDown={onResizeKeyDown}
+          style={windowNoDragStyle}
+          className="absolute inset-y-0 right-0 z-30 w-2 cursor-col-resize touch-none focus-visible:bg-accent/30 focus-visible:outline-none"
+        />
+      )}
       {/* macOS owns inset traffic lights; Linux/Windows use native chrome. */}
       <div
         className={cn("flex items-center pt-3.5 pb-1", density === "icons" ? "flex-col gap-1 px-2" : "justify-between px-4")}
@@ -2206,7 +2349,17 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                         onMenu={setRoomMenu}
                       />
                     ))}
-                    {sectionBotItems.map((bot) => (
+                    {id === PINNED_SECTION_ID && pinnedCircles && density !== "icons" ? (
+                      <div
+                        data-sidebar-pinned-circles=""
+                        className="grid gap-1 px-1 pb-1"
+                        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}
+                      >
+                        {sectionBotItems.map((bot) => (
+                          <PinnedBotCircle key={bot.id} bot={bot} onMenu={setMenu} />
+                        ))}
+                      </div>
+                    ) : sectionBotItems.map((bot) => (
                       <BotListItem
                         key={bot.id}
                         bot={bot}
