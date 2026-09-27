@@ -1744,8 +1744,6 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   }>({ from: null, over: null });
 
   const expandedWidth = sidebarWidth ?? (density === "compact" ? SIDEBAR_COMPACT_WIDTH : SIDEBAR_COMFORTABLE_WIDTH);
-  const expandedWidthRef = useRef(expandedWidth);
-  expandedWidthRef.current = expandedWidth;
 
   const applySidebarWidth = (px: number) => {
     const next = clampSidebarWidth(px);
@@ -1760,27 +1758,40 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     const handle = event.currentTarget;
     handle.setPointerCapture(event.pointerId);
     const originX = event.clientX;
-    const originWidth = expandedWidthRef.current;
+    const originWidth = expandedWidth;
+    const previousWidth = sidebarWidth;
     setResizingSidebar(true);
     const move = (ev: PointerEvent) => {
       setSidebarWidth(clampSidebarWidth(originWidth + ev.clientX - originX));
     };
-    const finish = (ev: PointerEvent) => {
+    // Drop lostpointercapture inside finish so a completed drag cannot be
+    // undone when the browser releases capture after pointerup.
+    function cleanup() {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", finish);
       handle.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", cancel);
+    }
+    function finish(ev: PointerEvent) {
+      cleanup();
       applySidebarWidth(originWidth + ev.clientX - originX);
       setResizingSidebar(false);
-    };
+    }
+    function cancel() {
+      cleanup();
+      setSidebarWidth(previousWidth);
+      setResizingSidebar(false);
+    }
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", finish);
     handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", cancel);
   };
 
   const onResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    applySidebarWidth(expandedWidthRef.current + (event.key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : -SIDEBAR_WIDTH_STEP));
+    applySidebarWidth(expandedWidth + (event.key === "ArrowRight" ? SIDEBAR_WIDTH_STEP : -SIDEBAR_WIDTH_STEP));
   };
 
   const setDensity = (next: SidebarDensity) => {
@@ -1788,7 +1799,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     if (next !== "icons") setLastExpandedDensity(next);
     // Search is hidden in avatar-only mode. Keeping its value would silently
     // filter bots, rooms, and message results with no visible way to clear it.
-    else setQuery("");
+    // Collapsing also ends an in-progress drag so transition-none cannot stick.
+    else {
+      setQuery("");
+      setResizingSidebar(false);
+    }
     saveSidebarDensity(next);
     setDensityOpen(false);
   };
