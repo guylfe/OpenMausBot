@@ -2,6 +2,7 @@ package com.openmausbot.companion.core
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -451,13 +452,40 @@ class DecodingTest {
     }
 
     @Test
-    fun unknownMessageArrivesOverTheStream() {
+    fun routineRunMessageArrivesOverTheStream() {
+        // This message kind used to be the unknown-kind stand-in. It is a card
+        // now. The live frame kind "routine.run" stays unknown; that fixture is
+        // unknownFrameKindIsAbsorbedRatherThanThrown.
         val frame = CompanionJson.decodeFromString<StreamFrame>(
             """{"kind":"message","seq":3,"threadId":"t1","message":{"id":"m9","role":"bot","kind":"routine.run","at":9,"text":"ran"}}""",
         ).frame as Frame.Message
         assertEquals("t1", frame.threadId)
-        assertEquals(Message.Kind.UNKNOWN, frame.message.kind)
+        assertEquals(Message.Kind.ROUTINE_RUN, frame.message.kind)
         assertEquals("ran", frame.message.text)
+        assertNull(frame.message.routineRun)
+    }
+
+    @Test
+    fun decodesARoutineRunCard() {
+        val message = CompanionJson.decodeFromString<Message>(
+            """{"id":"m1","role":"bot","kind":"routine.run","at":9,"text":"fallback","clientNote":"keep",
+               "routineRun":{"runId":"run-1","routineId":"routine-1","routineName":"Morning brief",
+                 "scheduledFor":1710000000000,"status":"failed","deferredAt":1710000001000,
+                 "goalStatus":"blocked","executionThreadId":"exec-1","summary":"The brief is ready.",
+                 "error":"Provider failed","futureField":{"nope":true}}}""",
+        )
+        assertEquals(Message.Kind.ROUTINE_RUN, message.kind)
+        val card = message.routineRun
+        assertEquals("Morning brief", card?.routineName)
+        assertEquals("failed", card?.status)
+        assertEquals("The brief is ready.", card?.summary)
+        assertEquals("exec-1", card?.executionThreadId)
+        assertEquals("Provider failed", card?.error)
+        assertEquals("blocked", card?.goalStatus)
+        assertEquals(1_710_000_000_000.0, card?.scheduledFor)
+        val encoded = CompanionJson.encodeToString(message)
+        assertTrue(encoded.contains("\"kind\":\"routine.run\""))
+        assertFalse(encoded.contains("routine_run"))
     }
 
     @Test

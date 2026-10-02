@@ -1505,6 +1505,12 @@ struct MessageRow: View {
         case .digest:
             // Filtered out of the transcript rows; never drawn.
             EmptyView()
+        case .routineRun:
+            if let run = message.routineRun {
+                RoutineRunCardView(chat: chat, message: message, run: run, openThread: openThread)
+            } else if let text = message.text, !text.isEmpty {
+                TextBubble(message: message, chat: chat, tailed: endsRun, openLink: openLink)
+            }
         case .unknown:
             // A message kind from a newer computer. Almost everything the
             // harness sends carries `text`, so showing it is usually the

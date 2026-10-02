@@ -11,6 +11,7 @@ import com.openmausbot.companion.core.OptionCard
 import com.openmausbot.companion.core.PendingApproval
 import com.openmausbot.companion.core.Reaction
 import com.openmausbot.companion.core.Room
+import com.openmausbot.companion.core.RoutineRunCardRules
 import com.openmausbot.companion.core.Session
 import com.openmausbot.companion.core.chat
 import com.openmausbot.companion.core.TranscriptRow
@@ -478,6 +479,15 @@ object MessageActions {
         // A tool chip is context, a screenshot is pixels, a digest is a log line.
         Message.Kind.ACTIVITY, Message.Kind.SCREEN, Message.Kind.DIGEST -> null
         Message.Kind.COMPACTION -> message.compaction?.summary ?: message.text?.takeIf { it.isNotBlank() }
+        Message.Kind.ROUTINE_RUN -> {
+            val run = message.routineRun
+            if (run == null) {
+                message.text?.takeIf { it.isNotBlank() }
+            } else {
+                RoutineRunCardRules.detail(run)?.takeIf { it.isNotBlank() }
+                    ?: RoutineRunCardRules.rosterLine(run).takeIf { it.isNotBlank() }
+            }
+        }
     }
 
     /**

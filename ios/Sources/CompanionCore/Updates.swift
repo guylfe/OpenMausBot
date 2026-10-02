@@ -127,6 +127,7 @@ extension CompanionState {
         case .screen: return "Screenshot"
         case .digest: return ""
         case .compaction: return last.compaction?.chipText ?? last.text ?? ""
+        case .routineRun: return RoutineRunCardRules.previewLine(last)
         }
     }
 }

@@ -81,8 +81,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.openmausbot.companion.core.Bot
 import com.openmausbot.companion.core.Chat
 import com.openmausbot.companion.core.AttachedMessageContent
+import com.openmausbot.companion.core.RoutineRunCard
+import com.openmausbot.companion.core.RoutineRunCardRules
 import com.openmausbot.companion.core.generatedImages
 import com.openmausbot.companion.core.voiceNotes
 import com.openmausbot.companion.core.DisplayedMessageAttachment
@@ -168,6 +171,7 @@ fun MessageRow(
                 openLink = openLink,
                 openAttachment = openAttachment,
                 openThread = openThread,
+                bots = state.bots,
             )
 
             message.comm?.let {
@@ -408,6 +412,7 @@ private fun MessageContent(
     openLink: ((String, Message) -> Unit)?,
     openAttachment: ((DisplayedMessageAttachment, Message, DownloadedFile?) -> Unit)?,
     openThread: ((ThreadRef) -> Unit)?,
+    bots: List<Bot>,
 ) {
     when (message.kind) {
         Message.Kind.TEXT -> TextBubble(chat.threadId, message, endsRun, openLink, openAttachment)
@@ -432,6 +437,16 @@ private fun MessageContent(
         Message.Kind.COMPACTION -> ReceiptChip(
             label = message.compaction?.chipText ?: message.text.orEmpty(),
             detail = message.compaction?.summary ?: message.text.orEmpty(),
+        )
+        Message.Kind.ROUTINE_RUN -> RoutineRunMessage(
+            chat = chat,
+            message = message,
+            endsRun = endsRun,
+            openLink = openLink,
+            openAttachment = openAttachment,
+            openThread = openThread,
+            haptics = haptics,
+            bots = bots,
         )
         Message.Kind.SCREEN -> ScreenShot(chat.threadId, message)
         // Turn-audit chip (tool list + reply preview). Desktop shows it only
@@ -1072,6 +1087,129 @@ fun ActivityRunChip(items: List<Message>, openThread: ((ThreadRef) -> Unit)? = n
 
 /** The receipt's status dot, sized to sit level with the 13 sp name beside it. */
 private val ACTIVITY_DOT = 7.dp
+
+/**
+ * A routine result. Without a payload the row keeps the text bubble an older
+ * message already showed; with one it is a card, not that bubble.
+ */
+@Composable
+private fun RoutineRunMessage(
+    chat: Chat,
+    message: Message,
+    endsRun: Boolean,
+    openLink: ((String, Message) -> Unit)?,
+    openAttachment: ((DisplayedMessageAttachment, Message, DownloadedFile?) -> Unit)?,
+    openThread: ((ThreadRef) -> Unit)?,
+    haptics: Haptics,
+    bots: List<Bot>,
+) {
+    val run = message.routineRun
+    if (run == null) {
+        if (!message.text.isNullOrEmpty()) {
+            TextBubble(chat.threadId, message, endsRun, openLink, openAttachment)
+        }
+        return
+    }
+    // `tasks`, not `visibleTasks`: a routineRunId execution is hidden from
+    // pickers and is still the thread "Open run" goes to.
+    val target = if (openThread == null) {
+        null
+    } else {
+        RoutineRunCardRules.openTarget(
+            executionThreadId = run.executionThreadId,
+            routineName = run.routineName,
+            currentThreadId = chat.threadId,
+            fromBotId = message.from?.botId,
+            chatBotId = (chat as? Chat.BotChat)?.id,
+            bots = RoutineRunCardRules.taskLists(bots),
+        )
+    }
+    RoutineRunCardView(run = run, target = target, openThread = openThread, haptics = haptics)
+}
+
+@Composable
+private fun RoutineRunCardView(
+    run: RoutineRunCard,
+    target: ThreadRef?,
+    openThread: ((ThreadRef) -> Unit)?,
+    haptics: Haptics,
+) {
+    val label = RoutineRunCardRules.statusLabel(run.status, run.goalStatus, run.deferredAt)
+    val detail = RoutineRunCardRules.detail(run)
+    val overflows = detail != null && RoutineRunCardRules.detailOverflows(detail)
+    var expanded by remember(run.runId, detail) { mutableStateOf(false) }
+    val shown = when {
+        detail == null -> null
+        expanded || !overflows -> detail
+        else -> RoutineRunCardRules.detailPreview(detail)
+    }
+    val running = run.status == "running" && run.goalStatus.isNullOrEmpty()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(secondaryTint.copy(alpha = 0.13f), RoundedCornerShape(22.dp))
+            .padding(16.dp)
+            .semantics { contentDescription = "${run.routineName} routine run: $label" },
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(run.routineName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (running) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        text = label,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = secondaryTint,
+                    )
+                }
+            }
+            if (target != null && openThread != null) {
+                val action = RoutineRunCardRules.actionLabel(run.goalStatus)
+                TextButton(
+                    onClick = {
+                        haptics.play(TactileAction.OPEN_THREAD_CHIP)
+                        openThread(target)
+                    },
+                ) {
+                    Text(action, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        if (shown != null) {
+            // Expanded text is the whole string. Do not cap lines or height;
+            // the collapsed preview is the only truncation.
+            SelectionContainer {
+                Text(
+                    text = shown,
+                    fontSize = 15.sp,
+                    color = secondaryTint,
+                    softWrap = true,
+                )
+            }
+            if (overflows) {
+                TextButton(
+                    onClick = {
+                        haptics.play(TactileAction.TOGGLE_ACTIVITY_RUN)
+                        expanded = !expanded
+                    },
+                ) {
+                    Text(if (expanded) "Show less" else "Show full", fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
 
 /**
  * An option card. When it still has a request behind it, this is the screen the

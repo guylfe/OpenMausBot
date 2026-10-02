@@ -125,6 +125,46 @@ public struct ToolActivity: Codable, Hashable, Sendable {
     public var claudeUpdate: Bool?
 }
 
+/// Durable projection of one background routine run. The provider still runs
+/// in its isolated execution task; this card is what the conversation shows.
+/// Status stays a string so a value this build has not named still draws.
+public struct RoutineRunCard: Codable, Hashable, Sendable {
+    public var runId: String
+    public var routineId: String
+    public var routineName: String
+    public var scheduledFor: Double?
+    public var status: String
+    public var deferredAt: Double?
+    public var goalStatus: String?
+    public var executionThreadId: String?
+    public var summary: String?
+    public var error: String?
+
+    public init(
+        runId: String,
+        routineId: String,
+        routineName: String,
+        scheduledFor: Double? = nil,
+        status: String,
+        deferredAt: Double? = nil,
+        goalStatus: String? = nil,
+        executionThreadId: String? = nil,
+        summary: String? = nil,
+        error: String? = nil
+    ) {
+        self.runId = runId
+        self.routineId = routineId
+        self.routineName = routineName
+        self.scheduledFor = scheduledFor
+        self.status = status
+        self.deferredAt = deferredAt
+        self.goalStatus = goalStatus
+        self.executionThreadId = executionThreadId
+        self.summary = summary
+        self.error = error
+    }
+}
+
 /// A compaction record: from this message on, rebuilds of the thread's
 /// context carry `summary` instead of the earlier messages.
 public struct Compaction: Codable, Hashable, Sendable {
@@ -197,6 +237,10 @@ public struct Message: Codable, Hashable, Identifiable, Sendable {
         /// which draws whatever text a message carries.
         case digest
         case compaction
+        /// A background routine's progress, posted into the conversation that
+        /// created it. The raw value is dotted; an unmapped kind still falls
+        /// through to `.unknown` below.
+        case routineRun = "routine.run"
         /// A kind this build has never heard of.
         ///
         /// Not decorative. `kind` is not optional, so without this a single
@@ -242,6 +286,9 @@ public struct Message: Codable, Hashable, Identifiable, Sendable {
     public var threadRef: ThreadRef?
     /// `kind == .compaction`: the record itself.
     public var compaction: Compaction?
+    /// `kind == .routineRun`: the card payload. Nil on a partial message, which
+    /// falls back to `text`. Defaulted so existing memberwise calls compile.
+    public var routineRun: RoutineRunCard? = nil
     /// The message this one follows; nil at the thread root. Two messages
     /// sharing a parent are a fork.
     public var parentId: String?

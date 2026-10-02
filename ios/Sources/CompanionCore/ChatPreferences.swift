@@ -183,6 +183,8 @@ func previewText(of message: Message) -> String {
     case .screen: return "Screenshot"
     case .digest: return ""
     case .compaction: return message.compaction?.chipText ?? message.text ?? ""
+    // A routine card is a result, not a tool receipt: "Name: Status".
+    case .routineRun: return RoutineRunCardRules.previewLine(message)
     case .unknown: return message.text ?? ""
     }
 }

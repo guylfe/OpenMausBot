@@ -36,6 +36,14 @@ public enum Walkie {
             return "It needs a credential from you. Open the chat to enter it."
         case .activity, .screen, .digest, .compaction:
             return nil
+        case .routineRun:
+            let line = RoutineRunCardRules.previewLine(message)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let detail = message.routineRun.flatMap({ RoutineRunCardRules.detail($0) })?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !detail.isEmpty else {
+                return line.isEmpty ? nil : line
+            }
+            return line.isEmpty ? detail : "\(line). \(detail)"
         }
     }
 

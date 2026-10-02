@@ -144,6 +144,8 @@ internal fun previewText(message: Message): String = when (message.kind) {
     Message.Kind.SCREEN -> "Screenshot"
     Message.Kind.DIGEST -> ""
     Message.Kind.COMPACTION -> message.compaction?.chipText ?: message.text.orEmpty()
+    // A routine card is a result, not a tool receipt: "Name: Status".
+    Message.Kind.ROUTINE_RUN -> RoutineRunCardRules.previewLine(message)
     Message.Kind.UNKNOWN -> message.text.orEmpty()
 }
 

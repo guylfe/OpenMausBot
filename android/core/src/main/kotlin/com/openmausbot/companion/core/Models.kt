@@ -192,6 +192,25 @@ data class CommChip(
     val withColor: String,
 )
 
+/**
+ * Durable projection of one background routine run. The provider still runs
+ * in its isolated execution task; this card is what the conversation shows.
+ * Unknown status strings stay raw so a newer computer still draws the card.
+ */
+@Serializable
+data class RoutineRunCard(
+    val runId: String,
+    val routineId: String,
+    val routineName: String,
+    val scheduledFor: Double? = null,
+    val status: String,
+    val deferredAt: Double? = null,
+    val goalStatus: String? = null,
+    val executionThreadId: String? = null,
+    val summary: String? = null,
+    val error: String? = null,
+)
+
 @Serializable
 data class Message(
     val id: String,
@@ -227,9 +246,11 @@ data class Message(
     /** Completed provider turns can fold narration without guessing which reply is final. */
     val turnId: String? = null,
     val turnTerminal: Boolean? = null,
+    /** `kind == ROUTINE_RUN`: the card payload. Absent on a partial message, which falls back to [text]. */
+    val routineRun: RoutineRunCard? = null,
 ) {
     @Serializable(with = MessageKindSerializer::class)
-    enum class Kind { TEXT, OPTIONS, ACTIVITY, SCREEN, DIGEST, COMPACTION, UNKNOWN }
+    enum class Kind { TEXT, OPTIONS, ACTIVITY, SCREEN, DIGEST, COMPACTION, ROUTINE_RUN, UNKNOWN }
 
     @Serializable(with = MessageRoleSerializer::class)
     enum class Role { BOT, USER }
@@ -245,11 +266,18 @@ object MessageKindSerializer : KSerializer<Message.Kind> {
         "screen" -> Message.Kind.SCREEN
         "digest" -> Message.Kind.DIGEST
         "compaction" -> Message.Kind.COMPACTION
+        // The wire string is dotted. `ROUTINE_RUN.name.lowercase()` would be
+        // "routine_run", which the computer does not send.
+        "routine.run" -> Message.Kind.ROUTINE_RUN
         else -> Message.Kind.UNKNOWN
     }
 
     override fun serialize(encoder: Encoder, value: Message.Kind) {
-        encoder.encodeString(value.name.lowercase())
+        val wire = when (value) {
+            Message.Kind.ROUTINE_RUN -> "routine.run"
+            else -> value.name.lowercase()
+        }
+        encoder.encodeString(wire)
     }
 }
 

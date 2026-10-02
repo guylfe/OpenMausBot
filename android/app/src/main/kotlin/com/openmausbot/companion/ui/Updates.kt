@@ -6,6 +6,7 @@ import com.openmausbot.companion.core.CompanionState
 import com.openmausbot.companion.core.Message
 import com.openmausbot.companion.core.OptionCard
 import com.openmausbot.companion.core.PendingApproval
+import com.openmausbot.companion.core.RoutineRunCardRules
 import com.openmausbot.companion.core.forTask
 import com.openmausbot.companion.core.takeLastCharacters
 import com.openmausbot.companion.core.visibleTasks
@@ -128,6 +129,7 @@ private fun CompanionState.lastLine(threadId: String): String {
         Message.Kind.SCREEN -> "Screenshot"
         Message.Kind.DIGEST -> ""
         Message.Kind.COMPACTION -> last.compaction?.chipText ?: last.text.orEmpty()
+        Message.Kind.ROUTINE_RUN -> RoutineRunCardRules.previewLine(last)
     }
 }
 

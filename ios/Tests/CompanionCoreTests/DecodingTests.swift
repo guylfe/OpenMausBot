@@ -842,7 +842,10 @@ final class DecodingTests: XCTestCase {
     }
 
     /// Same page, arriving one message at a time down the stream.
-    func testAnUnknownMessageArrivesOverTheStream() throws {
+    /// This message kind used to be the unknown-kind stand-in. It is a card
+    /// now. The live frame kind "routine.run" stays unknown; that fixture is
+    /// `testAnUnknownFrameKindIsAbsorbedRatherThanThrown`.
+    func testARoutineRunMessageArrivesOverTheStream() throws {
         let json = """
         {"kind":"message","seq":3,"threadId":"t1",
          "message":{"id":"m9","role":"bot","kind":"routine.run","at":9,"text":"ran"}}
@@ -852,7 +855,30 @@ final class DecodingTests: XCTestCase {
             return XCTFail("expected .message, got \(frame.frame)")
         }
         XCTAssertEqual(threadId, "t1")
-        XCTAssertEqual(message.kind, .unknown)
+        XCTAssertEqual(message.kind, .routineRun)
         XCTAssertEqual(message.text, "ran")
+        XCTAssertNil(message.routineRun)
+    }
+
+    func testARoutineRunCardDecodes() throws {
+        let json = """
+        {"id":"m1","role":"bot","kind":"routine.run","at":9,"text":"fallback","clientNote":"keep",
+         "routineRun":{"runId":"run-1","routineId":"routine-1","routineName":"Morning brief",
+           "scheduledFor":1710000000000,"status":"failed","deferredAt":1710000001000,
+           "goalStatus":"blocked","executionThreadId":"exec-1","summary":"The brief is ready.",
+           "error":"Provider failed","futureField":{"nope":true}}}
+        """
+        let message = try JSONDecoder().decode(Message.self, from: Data(json.utf8))
+        XCTAssertEqual(message.kind, .routineRun)
+        XCTAssertEqual(message.routineRun?.routineName, "Morning brief")
+        XCTAssertEqual(message.routineRun?.status, "failed")
+        XCTAssertEqual(message.routineRun?.summary, "The brief is ready.")
+        XCTAssertEqual(message.routineRun?.executionThreadId, "exec-1")
+        XCTAssertEqual(message.routineRun?.error, "Provider failed")
+        XCTAssertEqual(message.routineRun?.goalStatus, "blocked")
+        XCTAssertEqual(message.routineRun?.scheduledFor, 1_710_000_000_000)
+        let encoded = String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
+        XCTAssertTrue(encoded.contains("\"kind\":\"routine.run\""))
+        XCTAssertFalse(encoded.contains("routine_run"))
     }
 }
