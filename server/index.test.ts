@@ -7896,7 +7896,7 @@ describe("harness HTTP API", () => {
 
       const switched = await fileServer({ name: "botother", command: "npx", enabled: true });
       expect(switched.status).toBe(400);
-      expect((await switched.json()).error).toMatch(/on\/off switch/);
+      expect(await switched.json()).toMatchObject({ error: expect.stringMatching(/on\/off switch/) });
       expect(JSON.parse(readFileSync(configFile, "utf8")).mcpServers.botother).toBeUndefined();
       expect(JSON.parse(readFileSync(configFile, "utf8")).mcpServers.botnotes.env.NOTES_TOKEN).toBe(secret);
 
