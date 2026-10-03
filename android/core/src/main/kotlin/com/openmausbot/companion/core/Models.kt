@@ -502,6 +502,11 @@ data class Room(
     /** Desktop sidebar section. Missing or blank means the built-in Channels area. */
     val section: String? = null,
     val busyBotId: String? = null,
+    /**
+     * True for the whole orchestrated run — routing, members queued behind a
+     * busy speaker, hand-offs — not just while [busyBotId] names a speaker.
+     */
+    val working: Boolean? = null,
     /** Independent user conversations in this channel. DMs omit this field. */
     val tasks: List<BotTask>? = null,
     val messages: List<Message>? = null,
@@ -1527,7 +1532,11 @@ data class ServerSession(val id: String, val label: String, val scopes: List<Str
 @Serializable
 data class ServerEnvironment(val environmentId: String, val label: String)
 
-/** Unknown attachment kinds remain decodable and are not rendered. */
+/**
+ * Image entries display inline, file entries (a bot's attach_file: documents,
+ * audio, video) show as file cards ([attachedFiles]), audio entries render as
+ * voice notes. Unknown attachment kinds remain decodable and are not rendered.
+ */
 @Serializable
 data class MessageImageAttachment(
     val kind: String,
@@ -1535,4 +1544,6 @@ data class MessageImageAttachment(
     val mime: String? = null,
     /** `kind == "audio"`: the server's duration estimate, used until the player loads metadata. */
     val durationMs: Double? = null,
+    /** The file's name as the bot sent it, for `kind == "file"`. Presentation only; basenamed before display. */
+    val name: String? = null,
 )

@@ -55,6 +55,21 @@ class ChatPreferencesTest {
     }
 
     @Test
+    fun failedTurnIsNeverHiddenButAFailedStepStillIs() {
+        // The turn's own failure is the only sign the bot did not answer; a
+        // failed step inside a turn that went on is tool noise like any other.
+        val failedTurn = activity("e", ok = false).copy(
+            tool = ToolActivity(name = "error: Not logged in · Please run /login", ok = false, setup = true),
+        )
+        val messages = listOf(text("a"), activity("b", ok = false), failedTurn)
+        assertEquals(listOf("a", "e"), transcriptRows(messages, ActivityDetail.HIDDEN).map { it.id })
+        assertTrue(isFailedTurn(failedTurn))
+        assertFalse(isFailedTurn(activity("b", ok = false)))
+        assertEquals("Not logged in · Please run /login", failedTurn.tool!!.label)
+        assertEquals("run", activity("b").tool!!.label)
+    }
+
+    @Test
     fun hiddenDropsDigestAndCompactionReceiptsToo() {
         val messages = listOf(text("a"), activity("b"), digest("c"), text("d"), compaction("e"))
         assertEquals(listOf("a", "d"), transcriptRows(messages, ActivityDetail.HIDDEN).map { it.id })
@@ -167,6 +182,8 @@ class ChatPreferencesTest {
 
     @Test
     fun unknownActivityDetailUsesIosDefault() {
-        assertEquals(ActivityDetail.FULL, ActivityDetail.fromWire("unknown"))
+        // The phone reads like a normal chat until the reader chooses (2026-10-03).
+        assertEquals(ActivityDetail.HIDDEN, ActivityDetail.fromWire("unknown"))
+        assertEquals(ActivityDetail.HIDDEN, ActivityDetail.fromWire(null))
     }
 }

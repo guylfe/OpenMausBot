@@ -13,7 +13,7 @@ struct ChatListView: View {
     @EnvironmentObject private var session: Session
     @EnvironmentObject private var liveCall: LiveCallController
     @State private var query = ""
-    @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.full.rawValue
+    @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.phoneDefault.rawValue
     @AppStorage(PrefKey.rosterDensity) private var rosterDensity = RosterDensity.default.rawValue
     /// Driven so that making a bot can open it. Value-based navigation alone
     /// cannot push without a tap, and a new bot appearing silently at the
@@ -23,6 +23,7 @@ struct ChatListView: View {
     @State private var searching = false
     @State private var searchOpen = false
     @State private var showingUpdates = false
+    @State private var showingCalendar = false
     @State private var showingWalkie = false
     @State private var showingNewGroup = false
     @State private var showingNewSection = false
@@ -122,7 +123,7 @@ struct ChatListView: View {
             .overlay(alignment: .top) {
                 if CompanionLayout.supportsIslandPresentation {
                     NeedsYouIsland(
-                        update: session.state.updates.first { $0.kind == .needsYou }
+                        update: session.state.updates(detail: activity).first { $0.kind == .needsYou }
                     ) { chat in path.append(chat) }
                 }
             }
@@ -165,6 +166,10 @@ struct ChatListView: View {
                 }
             }
 #endif
+            .sheet(isPresented: $showingCalendar) {
+                RoutineCalendarView()
+                    .environmentObject(session)
+            }
             .sheet(isPresented: $showingUpdates) {
                 UpdatesSheet { chat in
                     showingUpdates = false
@@ -216,9 +221,9 @@ struct ChatListView: View {
 
     // MARK: - Header
 
-    /// The paired computer's profile on the left, one settings action on the
-    /// right, and where you are in between. The avatar is identity, not a
-    /// second hidden route to the same screen.
+    /// The paired computer's profile on the left; the routine calendar and
+    /// settings on the right, and where you are in between. The avatar is
+    /// identity, not a second hidden route to the same screen.
     private var header: some View {
         HStack(alignment: .center) {
             ProfileAvatar(name: session.connection?.name ?? "You", size: 30)
@@ -229,6 +234,33 @@ struct ChatListView: View {
 
             Spacer(minLength: 8)
 
+            HStack(spacing: 8) {
+                // Routines on a calendar, a tap from Home rather than buried
+                // in Settings (MOCA-191).
+                Button { showingCalendar = true } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Color.primary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .glassCapsule()
+                .accessibilityLabel("Routine calendar")
+                .accessibilityIdentifier("open-calendar")
+
+                NavigationLink { SettingsView() } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Color.primary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .glassCapsule()
+                .accessibilityLabel("Settings")
+            }
+        }
+        // Centred on the screen, not between the uneven sides.
+        .overlay {
             VStack(spacing: 2) {
                 Text("Threads")
                     .font(.system(size: 17, weight: .semibold))
@@ -238,18 +270,7 @@ struct ChatListView: View {
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
             }
-
-            Spacer(minLength: 8)
-
-            NavigationLink { SettingsView() } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color.primary)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .glassCapsule()
-            .accessibilityLabel("Settings")
+            .padding(.horizontal, 104)
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
@@ -645,7 +666,7 @@ struct ChatListView: View {
     }
 
     private var updatesButton: some View {
-        UpdatesPill(updates: session.state.updates) {
+        UpdatesPill(updates: session.state.updates(detail: activity)) {
             Haptics.selection()
             showingUpdates = true
         }
@@ -704,7 +725,7 @@ struct ChatListView: View {
     // MARK: - Data
 
     /// The reader's activity level, which the roster preview folds by.
-    private var activity: ActivityDetail { ActivityDetail(rawValue: activityDetail) ?? .full }
+    private var activity: ActivityDetail { ActivityDetail(rawValue: activityDetail) ?? .phoneDefault }
 
     /// How much each row says, from Settings.
     private var density: RosterDensity { RosterDensity(stored: rosterDensity) }

@@ -49,6 +49,7 @@ struct ChatView: View {
     @State private var threadDrafts: [String: ComposerSnapshot] = [:]
     @State private var preparingAttachments = false
     @State private var sendingMessage = false
+    @State private var steering = false
     @State private var attachmentError: String?
     @State private var openingFileName: String?
     @State private var fileOpenError: String?
@@ -74,7 +75,7 @@ struct ChatView: View {
 
     @AppStorage(PrefKey.islandIntro) private var islandIntro = IslandIntro.oncePerBot.rawValue
     @AppStorage(PrefKey.islandSeen) private var islandSeen = ""
-    @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.full.rawValue
+    @AppStorage(PrefKey.activityDetail) private var activityDetail = ActivityDetail.phoneDefault.rawValue
     @AppStorage(PrefKey.quickReplies) private var quickReplies = ""
 
     init(chat: Chat) {
@@ -134,8 +135,26 @@ struct ChatView: View {
 
     /// The transcript as the reader has asked to see it: every chip, folded
     /// runs, or none at all.
+    private var detail: ActivityDetail { ActivityDetail(rawValue: activityDetail) ?? .phoneDefault }
+
+    /// At Hidden, what a working bot has said so far in this turn: left out of
+    /// the transcript and shown as one grey status line above the composer.
+    private var live: LiveNarration { liveNarration(messages, busy: current.busy, detail: detail) }
+
     private var rows: [TranscriptRow] {
-        transcriptRows(messages, detail: ActivityDetail(rawValue: activityDetail) ?? .full)
+        let live = live
+        let shown = live.hiddenIds.isEmpty ? messages : messages.filter { !live.hiddenIds.contains($0.id) }
+        return transcriptRows(shown, detail: detail)
+    }
+
+    /// The status line's words: the reply as it streams, else the newest
+    /// in-between message. Nil unless Hidden and the bot is working.
+    private var liveStatusLine: String? {
+        guard current.busy, detail == .hidden else { return nil }
+        if let streaming = session.state.streaming[threadId], !streaming.isEmpty {
+            return String(streaming.suffix(240))
+        }
+        return live.latest
     }
 
     /// The composer's chip row, as edited in Settings.
@@ -234,10 +253,12 @@ struct ChatView: View {
                         // one arrives — the store clears it on the same frame
                         // that appends the message, so there is never a beat
                         // where both are on screen.
-                        if let live = session.state.streaming[threadId], !live.isEmpty {
+                        // At Hidden the words go to the status line above the
+                        // composer; the transcript keeps the typing dots.
+                        if current.busy, detail != .hidden, let live = session.state.streaming[threadId], !live.isEmpty {
                             StreamingBubble(text: live, reasoning: nil, color: current.color)
                                 .id(Self.liveBubbleId)
-                        } else if activityDetail != ActivityDetail.hidden.rawValue,
+                        } else if current.busy, activityDetail != ActivityDetail.hidden.rawValue,
                                   let thinking = session.state.reasoning[threadId], !thinking.isEmpty {
                             // Only while there is no answer yet. Once tokens
                             // of the reply exist, the reasoning is behind us
@@ -490,7 +511,16 @@ struct ChatView: View {
             cancelThreadOpen()
         }
         .onValueChange(of: session.connection?.id) { _ in
+            steering = false
             cancelThreadOpen()
+        }
+        .onValueChange(of: heldSends.first?.queueId) { _ in steering = false }
+        .onValueChange(of: current.busy) { busy in if !busy { steering = false } }
+        .onValueChange(of: threadId) { _ in steering = false }
+        .task(id: steering) {
+            guard steering else { return }
+            try? await Task.sleep(for: .seconds(20))
+            if !Task.isCancelled { steering = false }
         }
         .onDisappear {
             dictation.stop()
@@ -953,6 +983,28 @@ struct ChatView: View {
         messages.contains { $0.card?.isPending == true }
     }
 
+    private var engineCanSteer: Bool {
+        guard case let .bot(bot) = current else { return false }
+        return attachments.isEmpty && session.steeringInstanceIds.contains(bot.modelSelection.instanceId)
+    }
+
+    private var composerPrompt: String {
+        if sendingMessage { return "Sending…" }
+        if dictation.isListening { return "Listening…" }
+        if current.busy { return engineCanSteer ? "Sends into this turn" : "Sends after this turn" }
+        return "Ask \(current.name)"
+    }
+
+    private var steerQueued: (() -> Void)? {
+        guard current.busy, !hasPendingApproval, case let .bot(bot) = current else { return nil }
+        return {
+            steering = true
+            dictation.stop()
+            Haptics.impact(.medium)
+            Task { await session.interrupt(bot: bot) }
+        }
+    }
+
     private func submit(_ explicitText: String? = nil) {
         // This also cancels an in-flight permission prompt before it can
         // open the microphone after the message has already been sent.
@@ -1266,8 +1318,12 @@ struct ChatView: View {
     /// A round + and a glass pill with dictation and send inside it.
     private var composer: some View {
         VStack(spacing: 6) {
+            if let line = liveStatusLine?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty {
+                LiveStatusLine(text: line)
+                    .transition(.opacity)
+            }
             if !heldSends.isEmpty {
-                QueuedSendList(sends: heldSends, edit: editQueued) { send in
+                QueuedSendList(sends: heldSends, steer: steerQueued, steering: steering, edit: editQueued) { send in
                     Task { await session.cancelQueued(send, threadId: threadId, in: current) }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -1416,7 +1472,7 @@ struct ChatView: View {
                         .padding(.bottom, 6)
 
                         TextField(
-                            sendingMessage ? "Sending…" : dictation.isListening ? "Listening…" : "Ask \(current.name)",
+                            composerPrompt,
                             text: $draft,
                             axis: .vertical
                         )
@@ -1442,6 +1498,27 @@ struct ChatView: View {
                             // the line. onKeyPress never sees the software
                             // keyboard, so this cannot turn its Return into a send.
                             .onHardwareReturn { submit() }
+
+                        // Stop sits in the bar while the turn runs, as it does
+                        // on the desktop. The Interrupt action under + was the
+                        // only way before, and rooms had none at all.
+                        if current.canStop {
+                            Button {
+                                Haptics.selection()
+                                Task { await session.interrupt(current) }
+                            } label: {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(Color.primary)
+                                    .frame(width: 32, height: 32)
+                                    .background(Circle().fill(Color.secondary.opacity(0.12)))
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.bottom, 6)
+                            .accessibilityLabel("Stop the current turn")
+                            .accessibilityIdentifier("composer-stop")
+                            .transition(.scale.combined(with: .opacity))
+                        }
 
                         Button {
                             composerFocused = false
@@ -1479,6 +1556,9 @@ struct ChatView: View {
                         .padding(.trailing, 6)
                         .padding(.bottom, 6)
                         .animation(.easeOut(duration: 0.15), value: canSend)
+                        .accessibilityLabel(current.busy
+                            ? engineCanSteer ? "Send into the running turn" : "Queue this message for when the turn finishes"
+                            : "Send message")
                     }
                     .frame(minHeight: 44)
                     // A capsule at one line (44pt tall, 22pt corners) that
@@ -1803,6 +1883,14 @@ struct TextBubble: View {
                         messageId: message.id, foreground: mine ? BubbleColor.mineText : .primary
                     )
                 }
+                // Documents, audio and video a bot sent with attach_file. The
+                // card opens the full-screen viewer, which plays video.
+                ForEach(message.attachedFiles, id: \.path) { attachment in
+                    TranscriptAttachmentView(
+                        attachment: attachment, threadId: chat.threadId,
+                        messageId: message.id, foreground: mine ? BubbleColor.mineText : .primary
+                    )
+                }
                 // Bots get markdown, you do not — the same split the desktop
                 // makes. Markdown you did not intend is worse than markdown
                 // you did: a message about `**` should show the asterisks.
@@ -1836,6 +1924,11 @@ struct TextBubble: View {
                         .foregroundStyle(Color.primary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if mine, message.steered == true {
+                    Text("sent mid-turn")
+                        .font(.system(size: 11))
+                        .foregroundStyle(BubbleColor.mineText.opacity(0.72))
                 }
             }
             .padding(.horizontal, customCard ? 0 : 15)
@@ -1872,7 +1965,7 @@ struct ActivityChip: View {
             // carry raw output, and that log stays on the computer's side.
             let output = outputIsProse ? tool.expandableOutput : nil
             let receipt = SkillExecutionReceiptView(
-                skillName: tool.name,
+                skillName: tool.label,
                 status: tool.ok.map { $0 ? "success" : "error" } ?? "running",
                 output: output ?? "",
                 outputIsProse: outputIsProse
@@ -1911,7 +2004,7 @@ struct ActivityChip: View {
                     receipt.allowsHitTesting(false)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(tool.name)
+                .accessibilityLabel(tool.label)
                 .accessibilityHint("Opens the thread")
             } else {
                 receipt
@@ -2627,11 +2720,36 @@ struct StreamingBubble: View {
     }
 }
 
+/// What a working bot is saying, at Hidden: one grey line above the composer,
+/// replaced by each new message, instead of a bubble per message.
+private struct LiveStatusLine: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.mini)
+            Text(verbatim: text.replacingOccurrences(of: "\n", with: " "))
+                .font(.system(size: 13))
+                .foregroundStyle(Color.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .animation(.easeOut(duration: 0.15), value: text)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("live-status-line")
+    }
+}
+
 /// The held sends for one thread, as the desktop's composer shows them: one
 /// line each, editable and deletable, with a note when the harness held them
 /// for thread capacity rather than because a turn is running.
 private struct QueuedSendList: View {
     let sends: [QueuedSend]
+    let steer: (() -> Void)?
+    let steering: Bool
     let edit: (QueuedSend) -> Void
     let cancel: (QueuedSend) -> Void
 
@@ -2657,6 +2775,13 @@ private struct QueuedSendList: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if index == 0, let steer {
+                        Button(steering ? "Steering…" : sends.count > 1 ? "Steer all" : "Steer", action: steer)
+                            .font(.system(size: 14, weight: .medium))
+                            .buttonStyle(.bordered)
+                            .disabled(steering)
+                            .accessibilityHint("Stops the current turn so the queued messages run now")
+                    }
                     Button {
                         edit(send)
                     } label: {
