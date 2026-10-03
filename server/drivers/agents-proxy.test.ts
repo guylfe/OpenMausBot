@@ -643,6 +643,7 @@ describe("agents-proxy MCP surface", () => {
       "propose_model",
       "skills_list",
       "skill_manage",
+      "add_mcp_server",
     ]);
     const ask = list.result.tools.find((tool: { name: string }) => tool.name === "ask_bot");
     const delegate = list.result.tools.find((tool: { name: string }) => tool.name === "delegate_bot");
