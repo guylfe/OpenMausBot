@@ -27,6 +27,8 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const mounted = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -40,8 +42,19 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
     mounted.current = true;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
+    // The opener keeps focus, and a drag-region click can blur the close
+    // button. Bot settings then sees this dialog and leaves Escape alone, so
+    // the key has to be taken here, before that parent handler runs.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
     return () => {
       mounted.current = false;
+      window.removeEventListener("keydown", onKey, true);
       if (opener?.isConnected) opener.focus();
     };
   }, []);
@@ -100,7 +113,6 @@ export function CommandAllowlistDialog({ botId, botName, threadId, onClose }: {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
       onMouseDown={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) onClose(); }}
       onKeyDown={(event) => {
-        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); return; }
         if (event.key !== "Tab") return;
         const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
           "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex='0']",
