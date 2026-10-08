@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { writeFileAtomicIfChanged } from "./atomic.ts";
+import { writeFileAtomic, writeFileAtomicIfChanged } from "./atomic.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import { ensureSections, readSections, changeEmptySection } from "./section-context.ts";
 import type { TeamComputers } from "./team-computers.ts";
@@ -15,6 +15,7 @@ import type { BotProfilePatch } from "./bot-profile.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR, EVENTS_DIR, NATIVE_DIR, loadBrowserProfileIdAliases } from "./config.ts";
 import * as mdb from "./message-db.ts";
+import { forgetBotMemoryJournal, journalFile } from "./memory-journal.ts";
 import { runCommand, type Command } from "./commands.ts";
 import { workspaceDir } from "./workspace.ts";
 import type { Destination } from "./surface.ts";
@@ -1992,6 +1993,14 @@ export class Store {
     try {
       rmSync(workspaceDir(id), { recursive: true, force: true });
     } catch {}
+    // The journal lives outside the workspace, so removing the workspace
+    // does not take it. It is this bot's record of what its memory used to
+    // say, and it goes with the bot — the same rule as a thread's event log.
+    try {
+      rmSync(journalFile(id), { force: true });
+    } catch {}
+    mdb.deleteBotMemoryFiles(id);
+    forgetBotMemoryJournal(id);
     // Generated task-workspaces are project files, not bot memory. Keep
     // them (and user-selected cwd folders) when deleting conversations.
     // Approval state deliberately lives outside the bot-writable workspace.
