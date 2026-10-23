@@ -18,6 +18,8 @@ import { spokenLineFields } from "../live-call-record.ts";
 import type { PhoneSecretSubmissionRegistry } from "../phone-secret.ts";
 import type { ReplyTarget } from "../replies.ts";
 import type { RequestAuth } from "../request-auth.ts";
+import { ownerOrAdmin } from "../request-auth.ts";
+import type { CodexBindings } from "../codex-bindings.ts";
 import type { RoutineManager } from "../routines.ts";
 import { acceptedSendMatch, parseSendId } from "../send-idempotency.ts";
 import { cancelSteeredMessage, holdSteeredQueue, queuedSteeredMessage, restoreHeldSteeredQueue, settleHeldSteeredQueue } from "../steer-queue.ts";
@@ -43,6 +45,7 @@ type CardAnswer = { botId: string; botName?: string; threadId: string; requestId
 type Behavior = "allow" | "deny" | "answer";
 
 export interface BotMessageRouteDeps {
+  codexBindings?: CodexBindings;
   store: Pick<Store,
     | "activeLeaf" | "appendMessage" | "bot" | "botByThread" | "bots" | "groupByThread" | "messagesFor"
     | "patchMessage" | "patchTask" | "projectBotForTask" | "setActiveLeaf" | "setTaskAskedAt" | "taskByThread" | "tasks">;
@@ -191,6 +194,12 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const threadId = body.threadId ?? bot.threadId;
       const notYours = cloudGuestSendRefusal(auth, threadId);
       if (notYours) return json(res, 403, { error: notYours });
+      if (deps.codexBindings?.configured(threadId)) {
+        if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only the local workspace owner can send to this Codex conversation." });
+        if (guarded || pressed || fromAnApp || body.replyToId || body.dataContext) return json(res, 409, { error: "This Codex connection accepts direct text and images only. No message was sent." });
+        const message = await deps.codexBindings.send(bot.id, threadId, String(body.text ?? ""), parseSendId(body.sendId) ?? "");
+        return json(res, 202, { ok: true, threadId, message });
+      }
       const onBehalfOf = guardedBody?.data?.onBehalfOf;
       const trigger: UsageTrigger = onBehalfOf
         ? { kind: "user", ...(onBehalfOf.email ? { email: onBehalfOf.email } : {}), ...(onBehalfOf.name ? { label: onBehalfOf.name } : {}) }
@@ -447,6 +456,11 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const behavior = requestBehavior(body.behavior);
       const reviewedSha256 = typeof body.reviewedSha256 === "string" ? body.reviewedSha256 : undefined;
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
+      if (deps.codexBindings?.configured(bot.threadId) && String(body.requestId).startsWith("codex-")) {
+        if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only the local workspace owner can answer Codex." });
+        if (body.always || body.rememberCommand) return json(res, 400, { error: "This connection supports approval of the displayed request only." });
+        return json(res, 200, { ok: true, outcome: await deps.codexBindings.answer(bot.id, bot.threadId, String(body.requestId), behavior, body.message) });
+      }
       const refusal = cardAnswerRefusal(auth, selected.threadId, String(body.requestId), behavior) ??
         (selected.threadId === bot.threadId ? null : cardAnswerRefusal(auth, bot.threadId, String(body.requestId), behavior));
       if (refusal) return json(res, 403, { error: refusal });
@@ -517,6 +531,13 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
       const requestId = String(body.requestId);
       const threadId = answeredIn(m[1], requestId);
+      if (deps.codexBindings?.configured(threadId) && requestId.startsWith("codex-")) {
+        if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only the local workspace owner can answer Codex." });
+        if (body.always || body.rememberCommand) return json(res, 400, { error: "This connection supports approval of the displayed request only." });
+        const owner = store.botByThread(threadId);
+        if (!owner) return json(res, 404, { error: "No such thread." });
+        return json(res, 200, { ok: true, outcome: await deps.codexBindings.answer(owner.id, threadId, requestId, behavior, body.message) });
+      }
       const refusal = cardAnswerRefusal(auth, m[1], requestId, behavior) ?? (threadId === m[1] ? null : cardAnswerRefusal(auth, threadId, requestId, behavior));
       if (refusal) return json(res, 403, { error: refusal });
       if (body.rememberCommand === true) {
@@ -642,6 +663,11 @@ export function createBotMessageRoutes(deps: BotMessageRouteDeps): RouteHandler 
       const expectedThreadId = body.threadId;
       if (expectedThreadId !== undefined && (typeof expectedThreadId !== "string" || !/^[\w-]+$/.test(expectedThreadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
+      }
+      if (deps.codexBindings?.configured(expectedThreadId ?? bot.threadId)) {
+        if (!ownerOrAdmin(auth)) return json(res, 403, { error: "Only the local workspace owner can stop Codex." });
+        await deps.codexBindings.cancel(bot.id, expectedThreadId ?? bot.threadId);
+        return json(res, 200, { ok: true });
       }
       if (typeof expectedThreadId === "string" && store.taskByThread(bot.id, expectedThreadId)) {
         const routine = routines!.activeBotRunForBot(bot.id);

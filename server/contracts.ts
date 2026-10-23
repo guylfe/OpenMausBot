@@ -417,6 +417,7 @@ export interface TextGenerationOptions {
 }
 
 export interface ProviderInstance {
+  readonly nativeCodex?: () => Promise<import("./drivers/codex-native-client.ts").CodexNativeClient>;
   readonly instanceId: InstanceId;
   readonly driverKind: DriverKind;
   readonly displayName: string | undefined;
