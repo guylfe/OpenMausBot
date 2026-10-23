@@ -98,7 +98,7 @@ export function Composer({
   onClearReply,
   onConsumeReply,
   onRestoreReply,
-  locked: setupLocked = false,
+  locked: setupLocked = false, nativeConversation = false, nativeDisconnected = false,
 }: {
   bot?: Bot;
   group?: Group;
@@ -108,10 +108,10 @@ export function Composer({
   onClearReply?: () => void;
   onConsumeReply?: () => void;
   onRestoreReply?: (message: Message, threadId: string) => void;
-  locked?: boolean;
+  locked?: boolean; nativeConversation?: boolean; nativeDisconnected?: boolean;
 }) {
   const bot = profile ? currentTaskBot(profile) : undefined;
-  const locked = setupLocked || Boolean(bot?.awaitingThreadSnapshot);
+  const locked = setupLocked || nativeDisconnected || Boolean(bot?.awaitingThreadSnapshot);
   const { state, dispatch } = useStore();
   const ownerOrAdmin = useOwnerOrAdmin();
   const { threads, currentBotId } = useThreadRefs();
@@ -268,7 +268,7 @@ export function Composer({
   const typedGoalText = group && !group.dm ? goalTextFromComposer(text) : null;
   const effectiveText = typedGoalText ?? text;
   const effectiveChannelMode = typedGoalText !== null ? "goal" : channelMode;
-  const engineSupportsImages = imageTargetsSupport(effectiveText, effectiveChannelMode);
+  const engineSupportsImages = nativeConversation || imageTargetsSupport(effectiveText, effectiveChannelMode);
 
   const slash = composerSlashTrigger(text, caret);
   const locale = activeLocale();
@@ -854,8 +854,8 @@ export function Composer({
               </button>}
               {/* Simple mode keeps the chip only while Finish together is on, so the + menu's choice stays visible. */}
               {goal && (advanced || goal.on) && <GoalToggle on={goal.on} onToggle={goal.onToggle} />}
-              {advanced && approvalChoice && <ApprovalModeSelector {...approvalChoice} />}
-              {modeBot && !remoteClient && advanced && (
+              {advanced && !nativeConversation && approvalChoice && <ApprovalModeSelector {...approvalChoice} />}
+              {modeBot && !remoteClient && advanced && !nativeConversation && (
                 <PlaceChip
                   bot={modeBot}
                   task={composerTask}
@@ -953,7 +953,7 @@ export function Composer({
           // is pending.
           disabled={Boolean(approval) || locked}
           aria-busy={bot?.awaitingThreadSnapshot || undefined}
-          placeholder={
+          placeholder={nativeConversation ? t("codex.placeholder") :
             setupLocked
               ? t("composer.placeholder.locked")
               : approval
@@ -1010,7 +1010,7 @@ export function Composer({
             <Mic size={advanced ? 18 : 16} />
           </button>
         )}
-        {bot && !group && <CallButton bot={bot} placement="composer" fill={advanced ? undefined : MAUS_COLORS[bot.color] ?? MAUS_COLORS.green} />}
+        {bot && !group && !nativeConversation && <CallButton bot={bot} placement="composer" fill={advanced ? undefined : MAUS_COLORS[bot.color] ?? MAUS_COLORS.green} />}
         {group && !advanced && <GroupCallButton group={group} members={members ?? []} placement="composer" fill="var(--color-accent)" />}
         {hasContent && !locked && (
           <button

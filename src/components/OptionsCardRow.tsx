@@ -17,9 +17,9 @@ export function optionsCardRow({ message: m, transcript, botId, botName, threadI
   threadId: string;
 }): ReactNode {
   const card = m.card?.requestId && m.card.questionRequest ? (
-    <QuestionCard threadId={threadId} bot={{ name: botName }} message={m} />
+    <QuestionCard threadId={threadId} bot={{ name: m.codex ? "Codex" : botName }} message={m} />
   ) : m.card?.requestId && m.card.tool ? (
-    <ApprovalCard bot={{ name: botName }} message={m} threadId={threadId} />
+    <ApprovalCard bot={{ name: m.codex ? "Codex" : botName }} message={m} threadId={threadId} />
   ) : shouldHideOnboardingCard(m, transcript) ? null : (
     <OptionCard botId={botId} threadId={threadId} message={m} />
   );

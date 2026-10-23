@@ -424,6 +424,7 @@ export type CardAnswerer = (
 
 /** One transcript line, serialized as stored. */
 export interface WireMessage {
+  codex?: import("./codex-binding.ts").CodexProvenance;
   roomRequest?: { id: string; phase: "request" | "result" };
   id: string;
   role: "bot" | "user";

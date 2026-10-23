@@ -8,7 +8,6 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { codexConfigMcp, codexConfigRunsServer, mountedMcpServerName } from "./codex-mcp-names.ts";
-
 import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { laterStartup, openStartupModelCatalog, writeStartupModelCache } from "../startup-model-catalog.ts";
 import { hostedWorkspaceConfigured } from "../enterprise.ts";
@@ -45,6 +44,7 @@ import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instr
 import { volatileContextNote, withContextNote } from "./prompt-split.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
+import { codexNativeAccess } from "./codex-native-client.ts";
 import { codexAccountEmail, codexHome } from "./codex-identity.ts";
 import { CODEX_MISSING_CREDENTIALS, CODEX_SIGN_IN_EXPIRED, codexLimitFacts, codexNotSignedIn, codexSignInExpired, codexSignInRefused, codexUserError, type CodexRoute } from "./codex-errors.ts";
 import { codexLoginCheck, codexLoginStatus, storedCodexLogin } from "./codex-login.ts";
@@ -557,7 +557,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const planAuth = plan ? new ChatGptPlanAuthController({ directory: planDirectory }) : null;
     let planGeneration = 0;
     let planSigningOut = false;
-    let disposed = false;
+    let disposed = false; const nativeAccess = codexNativeAccess(config.cli, childEnv, () => disposed);
     let planWarning: string | undefined;
     let models = plan ? { default: "", options: [] } : config.managed ? { default: config.managed.models[0], options: config.managed.models.map(id => ({ id, label: id })) } : STATIC_CODEX_MODELS;
     const refreshModels = async (preserveExisting = false) => {
@@ -1781,7 +1781,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     },
     refreshModels,
     ...(startupModelRefresh ? { startupModelRefresh } : {}),
-    generateMemoryText,
+    generateMemoryText, ...(!plan && !config.managed ? { nativeCodex: nativeAccess.connect } : {}),
     ...(plan ? { authenticationMethod: "browser-pkce" as const } : {}),
     startAuthentication: async () => {
       if (planUnavailable) throw new Error(planUnavailable);
@@ -1796,7 +1796,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     },
     cancelAuthentication: () => (planAuth ?? authentication).cancel(),
     signOut: async () => {
-      if (!planAuth) {
+      if (!planAuth) { await nativeAccess.close();
         const mark = loginMark();
         await authentication.signOut();
         loginAccepted(mark);
@@ -1860,7 +1860,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       },
     },
     dispose: async () => {
-      disposed = true;
+      disposed = true; await nativeAccess.close();
       planGeneration++;
       await authentication.dispose();
       await planAuth?.dispose();

@@ -1,3 +1,4 @@
+import { CodexConnection, CodexSource } from "./CodexConnection";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch } from "react";
 import { useAdvancedMode } from "@/lib/interface-mode";
 import { ThreadLinkContext } from "@/components/ThreadLinkMenu";
@@ -120,11 +121,9 @@ import { latestFailure, latestReply, type TranscriptSnapshot } from "@/lib/trans
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 import { JumpToLatestButton } from "./JumpToLatestButton";
-
 const USER_COLLAPSE_CHARS = 600;
 const USER_COLLAPSE_LINES = 8;
 export const SIMPLE_BUBBLE = "rounded-[23px] font-normal";
-
 interface ChatRows {
   botId: string;
   threadId: string;
@@ -145,15 +144,12 @@ interface ChatRows {
   conversational: boolean; simple?: boolean; canReact: boolean;
   openedAt: number;
 }
-
 const ChatRowsContext = createContext<ChatRows | null>(null);
-
 function useChatRows(): ChatRows {
   const rows = useContext(ChatRowsContext);
   if (!rows) throw new Error("a chat row outside ChatView");
   return rows;
 }
-
 const drawnBot = (bot: Bot) =>
   [bot.id, bot.name, bot.hidden, bot.color, bot.mascotBody, bot.mascotExpression, bot.avatarUrl, bot.avatarCrop, bot.avatarZoom, bot.avatarFocusX, bot.avatarFocusY].join("\u0001");
 
@@ -569,6 +565,7 @@ const Bubble = memo(function Bubble({
                   ))}
                 </div>
               )}
+              {message.codex && <CodexSource {...message.codex} />}
               {!group && <AttachmentGallery images={generatedPaths} files={linkedFiles} message={{ threadId, messageId: message.id }} className={text ? undefined : "mb-0"} eager={eagerAttachments} />}
               {split ? (
                 <ConversationalReply segments={reply.segments} firstNew={reply.firstNew} citation={{ messageId: message.id, botId, threadId }}
@@ -967,6 +964,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const composerDock = useComposerDockPad(composerDockRef);
   const advanced = useAdvancedMode();
   const canWrite = useCanWriteIn(bot.threadId);
+  const [nativeState, setNativeState] = useState<{ threadId: string; view: import("../../shared/codex-binding").CodexBindingView }>();
+  const nativeChanged = useCallback((view: import("../../shared/codex-binding").CodexBindingView) => setNativeState({ threadId: bot.threadId, view }), [bot.threadId]);
+  const nativeView = nativeState?.threadId === bot.threadId ? nativeState.view : undefined;
 
   const computerStarting = computerStartLine(state.computerStarts[bot.id], bot.name);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
@@ -1242,7 +1242,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           <ThreadContextWarning bot={bot} messages={messages} />
           <EngineLimitNotice engine={bot.modelSelection?.instanceId} />
           {/* Simple mode moves the model, the computer and ⋯ into the bot panel; a remote client's panel has neither. */}
-          {advanced && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} />}
+          {advanced && !remoteClient && !nativeView?.configured && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} />}
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state, showThreads)} />
           {(advanced || remoteClient) && <button
             data-tour="computer"
@@ -1260,7 +1260,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         </div>
       </div>
 
-      <BotActivityPicker bot={bot} />{privateChat && team && <TeamPrivateFirstLine key={team.id} team={team} />}
+      <CodexConnection key={bot.threadId} botId={bot.id} threadId={bot.threadId} onChange={nativeChanged} /><BotActivityPicker bot={bot} />{privateChat && team && <TeamPrivateFirstLine key={team.id} team={team} />}
       {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
         <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
         {canOpenResults && resultsThreadId && <button type="button" onClick={() => openNotificationTarget(dispatch, { botId: bot.id, threadId: resultsThreadId }, state, showThreads)} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
@@ -1398,7 +1398,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       {canWrite === false ? (
         <NewConversationInstead onNew={() => dispatch({ type: "newTask", botId: bot.id })} />
       ) : (
-      <Composer
+      <Composer nativeConversation={nativeView?.configured} nativeDisconnected={nativeView?.configured && !nativeView.connected}
         key={bot.threadId}
         bot={profile}
         replyTo={replyTo}
