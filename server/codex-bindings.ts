@@ -362,7 +362,9 @@ export class CodexBindings {
   private ask(binding: Binding, connection: Connection, message: any): void {
     const { method, params, id } = message;
     const question = method === "item/tool/requestUserInput" ? parseProtocolAskQuestions(params.questions) : null;
-    const permission = method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval";
+    const permission = (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") &&
+      params.grantRoot == null && params.additionalPermissions == null &&
+      (!Array.isArray(params.availableDecisions) || params.availableDecisions.includes("accept") && params.availableDecisions.includes("decline"));
     if ((!permission && !question) || typeof params.turnId !== "string" || params.turnId !== connection.running) {
       connection.client?.reject(id);
       this.notice(binding, `unsupported:${String(id)}`, "Codex requested an unsupported approval or input interface. No permission was granted. Continue in Codex or cancel this turn.");

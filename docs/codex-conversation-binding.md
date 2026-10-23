@@ -28,7 +28,8 @@ OpenMausBot bot does not answer, add its instructions, or replay its transcript.
   unsupported attachments are rejected before dispatch. Audio is not transcribed.
 - Only command/file-change approvals and structured native questions have a user
   interface. Other approval, permission-amendment, elicitation, and dynamic-tool
-  requests fail closed with a visible notice. Continue in Codex or cancel.
+  requests, root grants, or extra permission payloads fail closed with a visible
+  notice. Continue in Codex or cancel.
 
 ## Setup, inspect, and disconnect
 

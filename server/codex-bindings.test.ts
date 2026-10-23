@@ -267,7 +267,7 @@ describe("existing native Codex bindings", () => {
     expect(await h.bridge.answer(h.bot.id, h.thread, card!.requestId!, "allow")).toBe("allowed-once");
     expect(h.native.replies).toEqual([{ id: 45, result: { decision: "accept" } }]);
     expect(await h.bridge.answer(h.bot.id, h.thread, card!.requestId!, "allow")).toBe("unavailable");
-    await h.native.emit("item/fileChange/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", itemId: "file-1", grantRoot: DATA_DIR }, 46);
+    await h.native.emit("item/fileChange/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", itemId: "file-1", reason: "Change one fixture file" }, 46);
     await h.native.close();
     expect(h.messages().find((message) => message.card?.requestId !== card!.requestId && message.card)?.card).toMatchObject({ expired: true, answered: "unavailable" });
     expect(h.native.replies).toHaveLength(1);
@@ -275,9 +275,13 @@ describe("existing native Codex bindings", () => {
 
   it("fails closed on foreign or unsupported approval methods", async () => {
     const h = fixture(); await h.bind();
+    await h.bridge.send(h.bot.id, h.thread, "approval scope", SEND); await h.native.next("turn/start");
     await h.native.emit("item/commandExecution/requestApproval", { threadId: "foreign", turnId: "turn", itemId: "item" }, 1);
-    await h.native.emit("item/permissions/requestApproval", { threadId: CONVERSATION, turnId: "turn", permissions: { fileSystem: { write: ["/"] } } }, 2);
-    expect(h.native.rejected).toEqual([1, 2]); expect(h.native.replies).toHaveLength(0);
+    await h.native.emit("item/permissions/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", permissions: { fileSystem: { write: ["/"] } } }, 2);
+    await h.native.emit("item/fileChange/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", grantRoot: "/" }, 3);
+    await h.native.emit("item/commandExecution/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", additionalPermissions: { network: true } }, 4);
+    await h.native.emit("item/commandExecution/requestApproval", { threadId: CONVERSATION, turnId: "native-turn-1", availableDecisions: ["acceptForSession", "decline"] }, 5);
+    expect(h.native.rejected).toEqual([1, 2, 3, 4, 5]); expect(h.native.replies).toHaveLength(0);
     expect(h.messages().some((message) => message.tool?.name.includes("No permission was granted"))).toBe(true);
   });
 
