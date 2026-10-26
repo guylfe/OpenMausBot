@@ -1,5 +1,59 @@
 # Sidebar confirmations
 
+## Pinned bot thread boundary
+
+Start the isolated sidebar fixture:
+
+```sh
+node --experimental-strip-types scripts/verify-pinned-sidebar.ts
+```
+
+The printed `previewUrl` mounts the real Sidebar with synthetic in-memory bots
+and twelve threads per pinned bot. It uses a disposable fake-engine server;
+no installed workspace or provider account is used. Open Atlas's thread list,
+then scroll the regular bots slightly: their section heading must not show
+through the pinned thread rows or their lower border. The pinned list must
+still scroll independently. Ctrl-C closes the fixture and removes its home.
+
+Run the browser regression against that exact printed URL:
+
+```sh
+node scripts/testing/check-pinned-sidebar.mjs http://127.0.0.1:PORT/__pinned-sidebar.html
+```
+
+Use `OMB_VERIFY_PLAYWRIGHT` and `OMB_VERIFY_BROWSER_CHROME` for an installed
+Playwright entry module and Chromium executable outside the default paths.
+`OMB_VERIFY_BROWSER_ARGS` optionally supplies a JSON array of launch arguments.
+The check refuses other hosts and paths and blocks external requests. Screenshots
+and `results.json` go to `OMB_PINNED_EVIDENCE` or the gitignored
+`.omb-scratch/verify-evidence/pinned-sidebar` directory.
+
+Sixteen cases cover circle and row layouts, comfortable and compact density,
+Midnight and Atelier themes, and 480 px and 800 px window heights. The check
+compares the pinned edge's pixels before and after scrolling the regular list,
+checks the pinned height cap and independent scroll positions, collapses the
+threads and selects a regular bot, and rejects browser/page errors.
+`--capture-only` records baseline screenshots and paint differences without
+asserting paint stability; it still checks the other interactions.
+
+This verifies renderer layout and in-memory selection, not server persistence
+or a packaged desktop install.
+
+Automated verification with Chromium 153.0.8010.0 detected paint changes in all
+16 cases on upstream `8b8d35608ffc4abf2e082ddfdbcc422987b5d1ab`, and unchanged
+pinned-edge pixels in all 16 cases with the fix. Both runs passed the scroll,
+collapse and selection checks with no console or page errors.
+
+Before:
+
+![Regular section heading paints through the expanded pinned threads](evidence/pinned-sidebar/before.png)
+
+After:
+
+![Pinned threads have a clean opaque lower boundary](evidence/pinned-sidebar/after.png)
+
+## Confirmation checks
+
 Launch `node --experimental-strip-types scripts/verify-sidebar.ts`. It creates
 an isolated fake-engine server and two disposable bots, then prints a preview
 URL. Open that URL, never the user's live app. Ctrl-C closes both servers and
