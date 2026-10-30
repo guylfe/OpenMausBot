@@ -77,6 +77,7 @@ import { optionsCardRow } from "./OptionsCardRow";
 import { MessageBoundary } from "./MessageBoundary";
 import { RichMessageRow, UserLineNote, richRowKind } from "./RichMessageRow"; import { SetupOffer } from "./SetupOffer"; import { SavedStepsChip } from "./SavedStepsChip";
 import { Composer } from "./Composer";
+import { MainInputRequests } from "./MainInputRequests";
 import { ChatErrorBanner, ChatNotice } from "./ChatErrorBanner";
 import { ThreadContextWarning } from "./ContextWarning";
 import { EngineLimitNotice, useLimitResetContinue } from "./LimitResetContinue";
@@ -1084,7 +1085,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           )}
           {!phone && !simpleHead && <ChatHeadRole bot={bot} />}<span role="status" className="sr-only" data-chathead-status>{bot.busy ? t("sidebar.preview.working") : ""}</span>{!simpleHead && privateChat && <TeamPrivateHeader />}{!simpleHead && ownHelper && <TeamOwnHelperHeader />}{!simpleHead && sharedChat && team && <TeamSharedHeader team={team} />}
           {!simpleHead && !bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">Teammates working</span>}
-          {(advanced || remoteClient) && awayFromMainThread(profile, showThreads) && (
+          {awayFromMainThread(profile, showThreads) && (
             <button
               type="button"
               data-chathead-back
@@ -1210,6 +1211,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               onReply={selectReply}
             />
           </ChatRowsContext.Provider>
+          <MainInputRequests bot={profile} threadId={bot.threadId} />
           {stopNoticeDue(messages, stoppedAt, busy) && <CancelledTurnRow name={PERSON_STOPPED_TURN_NAME} />}
           {laterCount > 0 && (
             <div className="flex justify-center">

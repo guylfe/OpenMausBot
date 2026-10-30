@@ -35,6 +35,7 @@ import { HomeLine } from "@/components/HomeLine";
 import { useTeamChats } from "@/state/team-chats";
 import { needsYouVersion, useTeamPeopleLoader } from "@/state/team-people";
 import { inboxVersion, useInboxLoader, useInboxPanel } from "@/state/inbox";
+import { useInputRequestsLoader } from "@/state/input-requests";
 import { InboxPanel } from "@/components/inbox/InboxPanel";
 import { CloudAddDialog } from "@/components/CloudAddDialog";
 import { PlacesRail } from "@/components/PlacesRail";
@@ -81,6 +82,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   // A Switch AI pick lands once its stopped turn's chat is idle, wherever the person is by then.
   useAiSwitchKeeper({ bots: state.bots, dispatch });
   const showThreads = useShowThreads();
+  useInputRequestsLoader(state.config !== null && !showThreads, state.connected);
   const { capabilities } = useDesktopCapabilities();
   const captionChrome = useCaptionChrome();
   const unreadCount =

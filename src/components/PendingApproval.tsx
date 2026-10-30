@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Send, ShieldCheck, TriangleAlert } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -247,6 +247,11 @@ export function PendingApprovalActions({
   tag?: string;
 }) {
   const { dispatch } = useStore();
+  const requestKey = `${threadId}:${pending.requestId}`;
+  const sending = useRef<string | null>(null);
+  const [answerState, setAnswerState] = useState<{ key: string; error: string | null } | null>(null);
+  const pendingAnswer = answerState?.key === requestKey && answerState.error === null;
+  const answerError = answerState?.key === requestKey ? answerState.error : null;
   const ownerOrAdmin = useOwnerOrAdmin();
   const isRoutineRequest = isRoutineApproval(pending);
   const isSkillRequest = isSkillApproval(pending);
@@ -257,7 +262,10 @@ export function PendingApprovalActions({
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) =>
+  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) => {
+    if (sending.current === requestKey) return;
+    sending.current = requestKey;
+    setAnswerState({ key: requestKey, error: null });
     dispatch({
       type: "decideRequest",
       threadId,
@@ -268,7 +276,9 @@ export function PendingApprovalActions({
       alwaysAllow: always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined,
       always: always && !pending.allowKey && pending.allowSession ? true : undefined,
       rememberCommand: rememberCommand || undefined,
+      onError: (message) => { if (sending.current === requestKey) { sending.current = null; setAnswerState({ key: requestKey, error: message }); } },
     });
+  };
 
   const allow = askPrimary(bot?.color);
   const marked = (action: string) => (tag ? { [`data-${tag}-action`]: action } : {});
@@ -293,6 +303,7 @@ export function PendingApprovalActions({
         key="always"
         type="button"
         onClick={always.run}
+        disabled={pendingAnswer}
         aria-label={always.name}
         title={always.hint}
         className={ASK_QUIET_ANSWER}
@@ -305,6 +316,7 @@ export function PendingApprovalActions({
       {...marked("deny")}
       type="button"
       onClick={() => decide("deny")}
+      disabled={pendingAnswer}
       autoFocus={isTeamSetup}
       className={ASK_SECONDARY_BUTTON}
     >
@@ -315,7 +327,7 @@ export function PendingApprovalActions({
       {...marked("allow")}
       type="button"
       onClick={() => decide("allow")}
-      disabled={isSkillRequest && !reviewedSha256}
+      disabled={pendingAnswer || (isSkillRequest && !reviewedSha256)}
       className={allow.className}
       style={allow.style}
     >
@@ -328,12 +340,14 @@ export function PendingApprovalActions({
           : t("approval.action.allowOnce")}
     </button>,
   ].filter(Boolean) : [];
-  if (part === "primary") return <>{primary}</>;
+  const error = answerError && <p role="alert" className="w-full text-[13px] text-danger">{answerError}</p>;
+  if (part === "primary") return <>{primary}{error}</>;
   if (part === "more") return more.length ? <div className="flex flex-wrap items-center gap-2">{more}</div> : null;
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {more}
       {primary}
+      {error}
     </div>
   );
 }

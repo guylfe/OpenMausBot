@@ -10,6 +10,7 @@ import { useShowThreads } from "@/lib/thread-preferences";
 import { api, openBot, useStore, type Bot } from "@/state/store";
 import { useChiefStepOpen } from "@/lib/default-bot";
 
+import { BotInputRequestBadge } from "./MainInputRequests";
 import { BotAvatar } from "./Avatar";
 import { botTooltip } from "./BotModelBadge";
 import { liveBadgeFor } from "./LiveCallPill";
@@ -121,6 +122,7 @@ export const SidebarBotTile = memo(function SidebarBotTile({ primary = false, dr
           className="min-w-0 truncate text-center text-[13px] font-medium leading-4 text-ink"
           inputClassName="w-full rounded bg-inset px-1 text-center text-[13px] font-medium leading-4"
         />
+        <BotInputRequestBadge botId={bot.id} />
       </span>
     </div>
   );

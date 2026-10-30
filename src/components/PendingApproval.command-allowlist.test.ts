@@ -12,6 +12,13 @@ vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => fixture.admi
 
 import { pendingApprovals, PendingApprovalActions, PendingApprovalPanel } from "./PendingApproval";
 
+function renderActions(props: Parameters<typeof PendingApprovalActions>[0]) {
+  let tree: ReactNode;
+  function Capture() { tree = PendingApprovalActions(props); return tree; }
+  renderToStaticMarkup(createElement(Capture));
+  return tree;
+}
+
 const commandAllowlist = { command: "git status --short", cwd: "/work/project", providerInstanceId: "claude" };
 const bot = { id: "bot-1", name: "Scout" } as Bot;
 function message(extra: Partial<NonNullable<Message["card"]>> = {}): Message {
@@ -29,7 +36,7 @@ function nodes(value: ReactNode): Node[] {
 }
 function view(extra: Partial<NonNullable<Message["card"]>> = {}) {
   const pending = pendingApprovals([message(extra)])[0]!;
-  const tree = PendingApprovalActions({ pending, bot, threadId: "thread-1", onCancelTurn: vi.fn() });
+  const tree = renderActions({ pending, bot, threadId: "thread-1", onCancelTurn: vi.fn() });
   return { html: renderToStaticMarkup(tree), buttons: nodes(tree).filter((node) => node.type === "button") };
 }
 
@@ -113,7 +120,7 @@ describe("remembering exact command approvals", () => {
   it("puts the decision on the same row and Cancel turn behind the chevron", () => {
     const pending = pendingApprovals([message()])[0]!;
     const slot = (part: "primary" | "more") =>
-      PendingApprovalActions({ pending, bot, threadId: "thread-1", onCancelTurn: vi.fn(), part });
+      renderActions({ pending, bot, threadId: "thread-1", onCancelTurn: vi.fn(), part });
     const html = renderToStaticMarkup(createElement(PendingApprovalPanel, {
       pending, count: 1, index: 0, botName: "Scout", actions: slot("primary"), more: slot("more"),
     }));
@@ -137,7 +144,7 @@ describe("remembering exact command approvals", () => {
   });
 
   it("keeps the answers flat and finger-sized: a quiet extra, a neutral Deny and the one primary, a ring only for keyboard focus", () => {
-    const tree = PendingApprovalActions({ pending: pendingApprovals([message()])[0]!, bot, threadId: "thread-1", onCancelTurn: vi.fn(), part: "primary" });
+    const tree = renderActions({ pending: pendingApprovals([message()])[0]!, bot, threadId: "thread-1", onCancelTurn: vi.fn(), part: "primary" });
     const classes = nodes(tree).filter((node) => node.type === "button").map((node) => String((node.props as { className?: string }).className));
     expect(classes).toHaveLength(3);
     for (const name of classes) {
