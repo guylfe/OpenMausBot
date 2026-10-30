@@ -1,5 +1,6 @@
 import { cloudAsleep, onCloudPower } from "../lib/cloud-power";
 import { api, ApiError } from "./api";
+import { refreshInputRequests } from "./input-requests";
 import {
   createContext,
   useCallback,
@@ -2563,7 +2564,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               // A failed settings flush stops the response so work never resumes under a stale approval level.
               showError(error);
               action.onError?.(error instanceof Error ? error.message : String(error));
-            });
+            }).finally(() => { void refreshInputRequests(); });
           break;
         }
         case "answerCard": {
